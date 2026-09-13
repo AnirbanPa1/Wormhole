@@ -1,10 +1,5 @@
 import React, {useCallback, useEffect, useState} from 'react';
-import {
-  Alert,
-  BackHandler,
-  StatusBar,
-  StyleSheet,
-} from 'react-native';
+import {Alert, BackHandler, StatusBar, StyleSheet} from 'react-native';
 import {
   errorCodes,
   isErrorWithCode,
@@ -12,22 +7,24 @@ import {
   pick,
   types,
 } from '@react-native-documents/picker';
-import {PdfUtil} from 'react-native-pdf-light';
 import {GestureHandlerRootView} from 'react-native-gesture-handler';
+import {PdfUtil} from 'react-native-pdf-light';
 import {SafeAreaProvider} from 'react-native-safe-area-context';
-import {loadLibrary, saveLibrary} from './src/storage/library';
-import {initDictionary} from './src/services/dictionary.service';
 import LibraryScreen from './src/screens/LibraryScreen';
 import ReaderScreen from './src/screens/ReaderScreen';
 import SavedWordsScreen from './src/screens/SavedWordsScreen';
+import {initDictionary} from './src/services/dictionary.service';
+import {loadLibrary, saveLibrary} from './src/storage/library';
 import type {LibraryDocument} from './src/types/library';
+
+type AppView = 'library' | 'saved';
 
 function App(): React.JSX.Element {
   const [documents, setDocuments] = useState<LibraryDocument[]>([]);
   const [selected, setSelected] = useState<LibraryDocument | null>(null);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
-  const [view, setView] = useState<'library' | 'saved'>('library');
+  const [view, setView] = useState<AppView>('library');
 
   useEffect(() => {
     if (view !== 'saved' || selected) {
@@ -134,24 +131,21 @@ function App(): React.JSX.Element {
     );
   }, []);
 
-  const markTextLayerReady = useCallback(
-    (id: string) => {
-      setDocuments(current => {
-        const next = current.map(document =>
-          document.id === id ? {...document, hasTextLayer: true} : document,
-        );
-        saveLibrary(next).catch(() => undefined);
-        return next;
-      });
-      setSelected(current =>
-        current?.id === id ? {...current, hasTextLayer: true} : current,
+  const markTextLayerReady = useCallback((id: string) => {
+    setDocuments(current => {
+      const next = current.map(document =>
+        document.id === id ? {...document, hasTextLayer: true} : document,
       );
-    },
-    [],
-  );
+      saveLibrary(next).catch(() => undefined);
+      return next;
+    });
+    setSelected(current =>
+      current?.id === id ? {...current, hasTextLayer: true} : current,
+    );
+  }, []);
 
   return (
-    <GestureHandlerRootView style={styles.appRoot}>
+    <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
         <StatusBar barStyle={selected ? 'light-content' : 'dark-content'} />
         {selected ? (
@@ -179,7 +173,7 @@ function App(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  appRoot: {flex: 1},
+  root: {flex: 1},
 });
 
 export default App;

@@ -15,27 +15,26 @@ import {
 } from 'react-native';
 import {ZoomPdfView} from 'react-native-pdf-light/Zoom';
 import {SafeAreaView} from 'react-native-safe-area-context';
-import {loadTextLayer, saveTextLayer} from '../storage/text-layers';
-import {addCachedWord} from '../storage/word-cache';
-import {extractTextLayerPage} from '../services/pdf-text-extractor.service';
+import DictionarySheet from '../components/DictionarySheet';
+import TextLayerOverlay from '../components/TextLayerOverlay';
 import {
   initDictionary,
   lookup,
   type DictionaryResult,
 } from '../services/dictionary.service';
-import TextLayerOverlay from '../components/TextLayerOverlay';
-import DictionarySheet from '../components/DictionarySheet';
-import {colors} from '../constants/theme';
-import styles from './ReaderScreen.styles';
+import {extractTextLayerPage} from '../services/pdf-text-extractor.service';
+import {loadTextLayer, saveTextLayer} from '../storage/text-layers';
+import {addCachedWord} from '../storage/word-cache';
 import type {LibraryDocument} from '../types/library';
 import type {TextLayer, WordBox} from '../types/text-layer';
+import styles from './ReaderScreen.styles';
 
-interface ReaderScreenProps {
+type ReaderScreenProps = {
   document: LibraryDocument;
   onBack: () => void;
   onPageChange: (page: number) => void;
   onTextLayerReady: (id: string) => void;
-}
+};
 
 function ReaderScreen({
   document,
@@ -102,7 +101,6 @@ function ReaderScreen({
     return () => subscription.remove();
   }, [handleBack]);
 
-  // Restore an already-extracted text layer for this document on open.
   useEffect(() => {
     let cancelled = false;
     loadTextLayer(document.id).then(existing => {
@@ -221,17 +219,14 @@ function ReaderScreen({
     selectionMode,
   ]);
 
-  const handleWordPress = useCallback(
-    async (word: WordBox) => {
-      await initDictionary();
-      const result = lookup(word.text);
-      setActiveWord(word);
-      setDictionaryResult(result);
-      setSheetVisible(true);
-      addCachedWord(word.text, result).catch(() => undefined);
-    },
-    [],
-  );
+  const handleWordPress = useCallback(async (word: WordBox) => {
+    await initDictionary();
+    const result = lookup(word.text);
+    setActiveWord(word);
+    setDictionaryResult(result);
+    setSheetVisible(true);
+    addCachedWord(word.text, result).catch(() => undefined);
+  }, []);
 
   const goToPage = useCallback(
     (nextPage: number) => {
@@ -299,6 +294,7 @@ function ReaderScreen({
         ],
       };
       const pageLayer = layer?.pages.find(p => p.pageIndex === pageNumber) ?? null;
+
       return (
         <View style={[styles.pageSlot, {width: pagerWidth}]}>
           <Animated.View
@@ -375,7 +371,7 @@ function ReaderScreen({
               selectionMode && styles.analyzeButtonActive,
             ]}>
             {extracting ? (
-              <ActivityIndicator size="small" color={colors.white} />
+              <ActivityIndicator size="small" color="#FFFFFF" />
             ) : selectionMode ? (
               <Text style={styles.analyzeButtonText}>X</Text>
             ) : (
@@ -441,16 +437,26 @@ function ReaderScreen({
             <Text style={styles.pageButtonText}>‹</Text>
           </Pressable>
           <View style={styles.pageCounter}>
-            <Text style={styles.pageCounterText}>{page + 1} / {document.pageCount}</Text>
+            <Text style={styles.pageCounterText}>
+              {page + 1} / {document.pageCount}
+            </Text>
             <View style={styles.readerProgressTrack}>
-              <View style={[styles.readerProgressFill, {width: `${((page + 1) / document.pageCount) * 100}%`}]} />
+              <View
+                style={[
+                  styles.readerProgressFill,
+                  {width: `${((page + 1) / document.pageCount) * 100}%`},
+                ]}
+              />
             </View>
           </View>
           <Pressable
             accessibilityLabel="Next page"
             disabled={page >= document.pageCount - 1}
             onPress={() => goToPage(page + 1)}
-            style={[styles.pageButton, page >= document.pageCount - 1 && styles.disabledButton]}>
+            style={[
+              styles.pageButton,
+              page >= document.pageCount - 1 && styles.disabledButton,
+            ]}>
             <Text style={styles.pageButtonText}>›</Text>
           </Pressable>
         </View>

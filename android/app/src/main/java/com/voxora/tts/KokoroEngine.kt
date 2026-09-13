@@ -1,6 +1,6 @@
 package com.voxora.tts
 
-import com.k2fsa.sherpa.onnx.GenerateAudio
+import com.k2fsa.sherpa.onnx.GeneratedAudio
 import com.k2fsa.sherpa.onnx.OfflineTts
 import com.k2fsa.sherpa.onnx.OfflineTtsConfig
 import com.k2fsa.sherpa.onnx.OfflineTtsKokoroModelConfig
@@ -16,14 +16,14 @@ data class KokoroModelInfo(
 )
 
 data class KokoroGenerationResult(
-    val audio: GenerateAudio,
+    val audio: GeneratedAudio,
     val generationMs: Long,
     val durationMs: Long,
     val realTimeFactor: Double,
 )
 
-
 class KokoroEngine {
+
     private var tts: OfflineTts? = null
 
     private var loadedModelDirectory: String? = null
@@ -41,7 +41,6 @@ class KokoroEngine {
      * ├── espeak-ng-data/
      * └── lexicon*.txt      (optional)
      */
-
     @Synchronized
     fun initialize(
         modelDirectory: String,
@@ -73,8 +72,8 @@ class KokoroEngine {
                 File(directory, "model.onnx")
 
             else -> throw IllegalArgumentException(
-                "Missing kokoro model. Expected model.int8.onnx or model.onnx" + 
-                "inside ${directory.absolutePath}",
+                "Missing Kokoro model. Expected model.int8.onnx or model.onnx " +
+                    "inside ${directory.absolutePath}",
             )
         }
 
@@ -84,6 +83,10 @@ class KokoroEngine {
 
         require(voicesFile.isFile) {
             "Missing voices.bin: ${voicesFile.absolutePath}"
+        }
+
+        require(tokensFile.isFile) {
+            "Missing tokens.txt: ${tokensFile.absolutePath}"
         }
 
         require(espeakDirectory.isDirectory) {
@@ -96,7 +99,6 @@ class KokoroEngine {
          * If the exact same model + thread configuration is already
          * loaded, don't load the ~82M parameter model again.
          */
-
         if (
             tts != null &&
             loadedModelDirectory == directory.absolutePath &&
@@ -117,14 +119,13 @@ class KokoroEngine {
          * If another model/configuration was loaded previously,
          * dispose it before creating the new session.
          */
-
         release()
 
-        val = kokoroBuilder = OfflineTtsKokoroModelConfig.builder()
-                                                          .setModel(modelFile.absolutePath)
-                                                          .setVoices(voicesFile.absolutePath)
-                                                          .setTokens(tokensFile.absolutePath)
-                                                          .setDataDir(espeakDirectory.absolutePath)
+        val kokoroBuilder = OfflineTtsKokoroModelConfig.builder()
+                                .setModel(modelFile.absolutePath)
+                                .setVoices(voicesFile.absolutePath)
+                                .setTokens(tokensFile.absolutePath)
+                                .setDataDir(espeakDirectory.absolutePath)
 
         /*
          * A lexicon isn't required by the standard English example,
@@ -132,29 +133,30 @@ class KokoroEngine {
          *
          * Use it when present.
          */
+        findLexicon(directory)?.let { lexicon ->
+            kokoroBuilder.setLexicon(lexicon.absolutePath)
+        }
 
-        findLexicon(directory)?.let { 
-            lexicon -> kokoroBuilder.setLexicon(lexicon.absolutePath)
-            }
-
-        val KokoroConfig = kokoroBuilder.build()
+        val kokoroConfig = kokoroBuilder.build()
 
         val modelConfig = OfflineTtsModelConfig.builder()
-                                                .setKokoro(KokoroConfig)
-                                                .setNumThreads(threadCount)
-                                                .setDebug(false)
-                                                .setProvider("cpu")
-                                                .build()
+                            .setKokoro(kokoroConfig)
+                            .setNumThreads(threadCount)
+                            .setDebug(false)
+                            .setProvider("cpu")
+                            .build()
 
-        val config = OfflineTtsConfig.builder()
-                                      .setModel(modelConfig)
-                                      .build()
+        val config = OfflineTtsConfig
+                        .builder()
+                        .setModel(modelConfig)
+                        .build()
 
         val start = System.nanoTime()
 
         val newTts = OfflineTts(config)
 
-        val loadTimeMs = (System.nanoTime() - start) / 1_000_000L
+        val loadTimeMs =
+            (System.nanoTime() - start) / 1_000_000L
 
         tts = newTts
         loadedModelDirectory = directory.absolutePath
@@ -167,7 +169,6 @@ class KokoroEngine {
             loadTimeMs = loadTimeMs,
             threadCount = threadCount,
         )
-                                                        
     }
 
     /**
@@ -176,15 +177,14 @@ class KokoroEngine {
      * This does NOT write a WAV file.
      * WavWriter.kt will handle that separately.
      */
-
     @Synchronized
     fun synthesize(
         text: String,
         voiceId: Int,
-        speed: Float
+        speed: Float,
     ): KokoroGenerationResult {
         val engine = tts
-            ?: throw IllegalArgumentException(
+            ?: throw IllegalStateException(
                 "Kokoro is not initialized. Call initialize() first.",
             )
 
@@ -199,40 +199,53 @@ class KokoroEngine {
         val speakerCount = engine.numSpeakers
 
         require(
-            speakerCount <= 0 || 
+            speakerCount <= 0 ||
                 voiceId in 0 until speakerCount
         ) {
-            "Invalid vocieId $voiceId. " + "Available speakers: $speakerCount"
+            "Invalid voiceId $voiceId. " +
+                "Available speakers: $speakerCount"
         }
 
         val start = System.nanoTime()
 
-        val audio = engine.generate(
-            text,
-            voiceId,
-            speed,
-        )
+        val audio =
+            engine.generate(
+                text,
+                voiceId,
+                speed,
+            )
 
-        val generationNs = System.nanoTime() - start
+        val generationNs =
+            System.nanoTime() - start
 
-        val generationMs = generationNs / 1_000_000L
+        val generationMs =
+            generationNs / 1_000_000L
 
         val samples = audio.samples
         val sampleRate = audio.sampleRate
 
         if (samples.isEmpty()) {
-            throw IllegalArgumentException(
+            throw IllegalStateException(
                 "Kokoro generated zero audio samples",
             )
         }
 
         if (sampleRate <= 0) {
-            throw IllegalArgumentException(
+            throw IllegalStateException(
                 "Kokoro returned invalid sample rate: $sampleRate",
             )
         }
 
-        val rtf = 
+        val durationSeconds =
+            samples.size.toDouble() / sampleRate.toDouble()
+
+        val durationMs =
+            (durationSeconds * 1000.0).toLong()
+
+        val generationSeconds =
+            generationNs.toDouble() / 1_000_000_000.0
+
+        val rtf =
             if (durationSeconds > 0.0) {
                 generationSeconds / durationSeconds
             } else {
@@ -274,7 +287,7 @@ class KokoroEngine {
             .listFiles()
             ?.firstOrNull { file ->
                 file.isFile &&
-                    file.name.startsWith("lexicon") && 
+                    file.name.startsWith("lexicon") &&
                     file.name.endsWith(".txt")
             }
     }

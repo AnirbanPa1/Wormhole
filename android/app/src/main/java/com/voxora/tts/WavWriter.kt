@@ -56,7 +56,7 @@ object WavWriter {
         }
 
         if (outputFile.exists()) {
-            check(ouputFile.delete()) {
+            check(outputFile.delete()) {
                 tempFile.delete()
                 "Unable to replace existing WAV: ${outputFile.absolutePath}"
             }

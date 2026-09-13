@@ -8,17 +8,17 @@ import {
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {colors} from '../constants/theme';
-import styles from './LibraryScreen.styles';
 import type {LibraryDocument} from '../types/library';
+import styles from './LibraryScreen.styles';
 
-interface LibraryScreenProps {
+type LibraryScreenProps = {
   documents: LibraryDocument[];
   loading: boolean;
   importing: boolean;
   onImport: () => void;
   onOpen: (document: LibraryDocument) => void;
   onShowSaved: () => void;
-}
+};
 
 function LibraryScreen({
   documents,
@@ -42,7 +42,7 @@ function LibraryScreen({
           onPress={onImport}
           style={({pressed}) => [styles.importButton, pressed && styles.pressed]}>
           {importing ? (
-            <ActivityIndicator color={colors.white} />
+            <ActivityIndicator color="#FFFFFF" />
           ) : (
             <Text style={styles.importButtonText}>＋ PDF</Text>
           )}
