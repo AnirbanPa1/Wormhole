@@ -108,8 +108,8 @@ class KokoroEngine {
 
             return KokoroModelInfo(
                 modelPath = modelFile.absolutePath,
-                sampleRate = engine.sampleRate,
-                speakerCount = engine.numSpeakers,
+                sampleRate = engine.sampleRate(),
+                speakerCount = engine.numSpeakers(),
                 loadTimeMs = 0,
                 threadCount = threadCount,
             )
@@ -121,11 +121,12 @@ class KokoroEngine {
          */
         release()
 
-        val kokoroBuilder = OfflineTtsKokoroModelConfig.builder()
-                                .setModel(modelFile.absolutePath)
-                                .setVoices(voicesFile.absolutePath)
-                                .setTokens(tokensFile.absolutePath)
-                                .setDataDir(espeakDirectory.absolutePath)
+        val kokoroConfig = OfflineTtsKokoroModelConfig().apply {
+            model = modelFile.absolutePath
+            voices = voicesFile.absolutePath
+            tokens = tokensFile.absolutePath
+            dataDir = espeakDirectory.absolutePath
+        }
 
         /*
          * A lexicon isn't required by the standard English example,
@@ -134,26 +135,23 @@ class KokoroEngine {
          * Use it when present.
          */
         findLexicon(directory)?.let { lexicon ->
-            kokoroBuilder.setLexicon(lexicon.absolutePath)
+            kokoroConfig.lexicon = lexicon.absolutePath
         }
 
-        val kokoroConfig = kokoroBuilder.build()
+        val modelConfig = OfflineTtsModelConfig().apply {
+            kokoro = kokoroConfig
+            numThreads = threadCount
+            debug = false
+            provider = "cpu"
+        }
 
-        val modelConfig = OfflineTtsModelConfig.builder()
-                            .setKokoro(kokoroConfig)
-                            .setNumThreads(threadCount)
-                            .setDebug(false)
-                            .setProvider("cpu")
-                            .build()
-
-        val config = OfflineTtsConfig
-                        .builder()
-                        .setModel(modelConfig)
-                        .build()
+        val config = OfflineTtsConfig().apply {
+            model = modelConfig
+        }
 
         val start = System.nanoTime()
 
-        val newTts = OfflineTts(config)
+        val newTts = OfflineTts(config = config)
 
         val loadTimeMs =
             (System.nanoTime() - start) / 1_000_000L
@@ -164,8 +162,8 @@ class KokoroEngine {
 
         return KokoroModelInfo(
             modelPath = modelFile.absolutePath,
-            sampleRate = newTts.sampleRate,
-            speakerCount = newTts.numSpeakers,
+            sampleRate = newTts.sampleRate(),
+            speakerCount = newTts.numSpeakers(),
             loadTimeMs = loadTimeMs,
             threadCount = threadCount,
         )
@@ -196,7 +194,7 @@ class KokoroEngine {
             "speed must be greater than 0"
         }
 
-        val speakerCount = engine.numSpeakers
+        val speakerCount = engine.numSpeakers()
 
         require(
             speakerCount <= 0 ||

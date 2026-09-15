@@ -16,15 +16,16 @@ import SavedWordsScreen from './src/screens/SavedWordsScreen';
 import {initDictionary} from './src/services/dictionary.service';
 import {loadLibrary, saveLibrary} from './src/storage/library';
 import type {LibraryDocument} from './src/types/library';
+import TtsSpikeScreen from './src/screens/TtsSpikeScreen';
 
-type AppView = 'library' | 'saved';
+type AppView = 'library' | 'saved' | 'tts';
 
 function App(): React.JSX.Element {
   const [documents, setDocuments] = useState<LibraryDocument[]>([]);
   const [selected, setSelected] = useState<LibraryDocument | null>(null);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
-  const [view, setView] = useState<AppView>('library');
+  const [view, setView] = useState<AppView>('tts');
 
   useEffect(() => {
     if (view !== 'saved' || selected) {
@@ -148,7 +149,9 @@ function App(): React.JSX.Element {
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
         <StatusBar barStyle={selected ? 'light-content' : 'dark-content'} />
-        {selected ? (
+        {view === 'tts' ? (
+          <TtsSpikeScreen />
+        ) : selected ? (
           <ReaderScreen
             document={selected}
             onBack={() => setSelected(null)}
