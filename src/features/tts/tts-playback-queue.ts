@@ -36,7 +36,7 @@ export class TtsPlaybackQueue {
     private currentIndex = -1;
     private currentFilePath: string | null = null;
     private sessionId = 0;
-    private voiceId = 2;
+    private voiceId = 1;
     private speed = 1;
 
     constructor(
@@ -47,7 +47,7 @@ export class TtsPlaybackQueue {
 
     async start(
         text: string,
-        voiceId = 2,
+        voiceId = 1,
         speed = 1,
     ): Promise<void> {
         this.stop();

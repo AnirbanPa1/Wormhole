@@ -18,6 +18,8 @@ import {loadLibrary, saveLibrary} from './src/storage/library';
 import type {LibraryDocument} from './src/types/library';
 import TtsSpikeScreen from './src/screens/TtsSpikeScreen';
 
+import { KokoroTtsProvider } from './src/features/tts/KokoroTtsProvider';
+
 type AppView = 'library' | 'saved' | 'tts';
 
 function App(): React.JSX.Element {
@@ -25,7 +27,7 @@ function App(): React.JSX.Element {
   const [selected, setSelected] = useState<LibraryDocument | null>(null);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
-  const [view, setView] = useState<AppView>('tts');
+  const [view, setView] = useState<AppView>('library');
 
   useEffect(() => {
     if (view !== 'saved' || selected) {
@@ -148,28 +150,30 @@ function App(): React.JSX.Element {
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
-        <StatusBar barStyle={selected ? 'light-content' : 'dark-content'} />
-        {view === 'tts' ? (
-          <TtsSpikeScreen />
-        ) : selected ? (
-          <ReaderScreen
-            document={selected}
-            onBack={() => setSelected(null)}
-            onPageChange={page => saveProgress(selected.id, page)}
-            onTextLayerReady={markTextLayerReady}
-          />
-        ) : view === 'saved' ? (
-          <SavedWordsScreen onBack={() => setView('library')} />
-        ) : (
-          <LibraryScreen
-            documents={documents}
-            loading={loading}
-            importing={importing}
-            onImport={importPdf}
-            onOpen={setSelected}
-            onShowSaved={() => setView('saved')}
-          />
-        )}
+        <KokoroTtsProvider>
+          <StatusBar barStyle={selected ? 'light-content' : 'dark-content'} />
+          {view === 'tts' ? (
+            <TtsSpikeScreen />
+          ) : selected ? (
+            <ReaderScreen
+              document={selected}
+              onBack={() => setSelected(null)}
+              onPageChange={page => saveProgress(selected.id, page)}
+              onTextLayerReady={markTextLayerReady}
+            />
+          ) : view === 'saved' ? (
+            <SavedWordsScreen onBack={() => setView('library')} />
+          ) : (
+            <LibraryScreen
+              documents={documents}
+              loading={loading}
+              importing={importing}
+              onImport={importPdf}
+              onOpen={setSelected}
+              onShowSaved={() => setView('saved')}
+            />
+          )}
+        </KokoroTtsProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

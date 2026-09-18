@@ -29,6 +29,8 @@ import type {LibraryDocument} from '../types/library';
 import type {TextLayer, WordBox} from '../types/text-layer';
 import styles from './ReaderScreen.styles';
 
+import { useKokoroTts } from '../features/tts/KokoroTtsProvider';
+
 type ReaderScreenProps = {
   document: LibraryDocument;
   onBack: () => void;
@@ -68,8 +70,80 @@ function ReaderScreen({
   const [selectionMode, setSelectionMode] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [activeWord, setActiveWord] = useState<WordBox | null>(null);
-  const [dictionaryResult, setDictionaryResult] =
-    useState<DictionaryResult | null>(null);
+  const [dictionaryResult, setDictionaryResult] = useState<DictionaryResult | null>(null);
+
+  const {
+    status: ttsStatus,
+    currentChunk,
+    totalChunks,
+    read,
+    pause,
+    resume,
+    stop,
+  } = useKokoroTts();
+
+  const currentPageLayer = useMemo(
+    () => layer?.pages.find(item => item.pageIndex === page) ?? null,
+    [layer, page],
+  );
+
+  const currentPageText = useMemo(() => {
+    if (!currentPageLayer?.hasText) {
+      return '';
+    }
+
+    return currentPageLayer.words
+      .map(word => word.text.trim())
+      .filter(Boolean)
+      .join(' ')
+      .replace(/\s+([,.;:!?])/g, '$1');
+  }, [currentPageLayer]);
+
+  const handleNarration = useCallback(async () => {
+    try {
+      if (ttsStatus === 'playing') {
+        await pause();
+        return;
+      }
+
+      if (ttsStatus === 'paused') {
+        await resume();
+        return;
+      }
+
+      if (!currentPageText) {
+        Alert.alert(
+          'Page text unavailable',
+          'Capture the words on this page before listening.',
+        );
+
+        return;
+      }
+
+      await read(currentPageText);
+    } catch (error) {
+      Alert.alert(
+        'Narration unavailable',
+        error instanceof Error
+          ? error.message
+          : 'Please try again.',
+      );
+    }
+  }, [
+    currentPageText,
+    pause,
+    read,
+    resume,
+    ttsStatus,
+  ]);
+
+  useEffect(() => {
+    stop();
+  }, [document.id, page, stop]);
+
+  useEffect(() => {
+    return () => stop();
+  }, [stop]);
 
   const exitSelectionMode = useCallback(() => {
     setSelectionMode(false);
@@ -362,6 +436,34 @@ function ReaderScreen({
           </Text>
           <Pressable
             accessibilityLabel={
+              ttsStatus === 'playing'
+                ? 'Pause narration'
+                : ttsStatus === 'paused'
+                  ? 'Resume narration'
+                  : 'Read this page'
+            }
+            disabled={
+              ttsStatus === 'initializing' ||
+              ttsStatus === 'preparing'
+            }
+            onPress={handleNarration}
+            style={[
+              styles.narrationButton,
+              (ttsStatus === 'playing' ||
+                ttsStatus === 'paused') &&
+                styles.narrationButtonActive,
+            ]}>
+            {ttsStatus === 'initializing' ||
+            ttsStatus === 'preparing' ? (
+              <ActivityIndicator size="small" color="#FFFFFF" />
+            ) : (
+              <Text style={styles.narrationButtonText}>
+                {ttsStatus === 'playing' ? 'Ⅱ' : '▶'}
+              </Text>
+            )}
+          </Pressable>
+          <Pressable
+            accessibilityLabel={
               selectionMode ? 'Exit word selection' : 'Capture words on this page'
             }
             disabled={extracting || zoomedPage !== null}
@@ -440,6 +542,13 @@ function ReaderScreen({
             <Text style={styles.pageCounterText}>
               {page + 1} / {document.pageCount}
             </Text>
+
+            {ttsStatus === 'playing' && totalChunks > 0 && (
+              <Text style={styles.narrationProgress}>
+                {currentChunk}/{totalChunks}
+              </Text>
+            )}
+            
             <View style={styles.readerProgressTrack}>
               <View
                 style={[
