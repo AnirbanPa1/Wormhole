@@ -1,13 +1,16 @@
-import React, { useState } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { 
     initializeKokoro, 
-    prepareKokoroModelDirectory, 
+    playSpeech,
+    prepareKokoroModelDirectory,
+    stopSpeech,
     synthesizeSpeech,
     type KokoroGenerationInfo, 
-    type KokoroModelInfo
+    type KokoroModelInfo,
 } from '../features/tts/kokoro-client';
 import { Button, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { TtsPlaybackQueue } from '../features/tts/tts-playback-queue';
 
 export default function TtsSpikeScreen(): React.JSX.Element {
     const [text, setText] = useState(
@@ -19,6 +22,31 @@ export default function TtsSpikeScreen(): React.JSX.Element {
 
     const [status, setStatus] = useState('Not initialized');
     const [busy, setBusy] = useState(false);
+    
+    const queueRef = useRef<TtsPlaybackQueue | null>(null);
+
+    useEffect(() => {
+        const queue = new TtsPlaybackQueue({
+            onChunkChange(index, total) {
+                setStatus(`Playing chunk ${index + 1} of ${total}`);
+            },
+
+            onComplete() {
+                setStatus('Reading completed.');
+            },
+
+            onError(error) {
+                setStatus(error.message);
+            },
+        });
+
+        queueRef.current = queue;
+
+        return () => {
+            queueRef.current = null;
+            queue.dispose();
+        };
+    }, []);
 
     async function initialize(): Promise<void> {
         setBusy(true);
@@ -54,6 +82,72 @@ export default function TtsSpikeScreen(): React.JSX.Element {
         }
     }
 
+    async function play(): Promise<void> {
+        if(!generation) {
+            return;
+        }
+
+        try {
+            const playbackDurationMs = await playSpeech(generation.filePath);
+            setStatus(`Playing audio (${playbackDurationMs} ms)`);
+        } catch (error) {
+            setStatus(error instanceof Error ? error.message : String(error));
+        }
+    }
+
+    function stop(): void {
+        stopSpeech();
+        setStatus('Playback stopped.');
+    }
+
+    async function readWithQueue(): Promise<void> {
+        setBusy(true);
+        setStatus('Preparing first chunk...');
+
+        try {
+            await queueRef.current?.start(text, 2, 1);
+        } catch (error) {
+            setStatus(
+                error instanceof Error
+                    ? error.message
+                    : String(error),
+            );
+        } finally {
+            setBusy(false);
+        }
+    }
+
+    async function pauseQueue(): Promise<void> {
+        try {
+            const position = await queueRef.current?.pause();
+            setStatus(`Paused at ${position ?? 0} ms`);
+        } catch (error) {
+            setStatus(
+                error instanceof Error
+                    ? error.message
+                    : String(error),
+            );
+        }
+    }
+
+    async function resumeQueue(): Promise<void> {
+        try {
+            await queueRef.current?.resume();
+            setStatus('Playback resumed.');
+        } catch (error) {
+            setStatus(
+                error instanceof Error
+                    ? error.message
+                    : String(error),
+            );
+        }
+    }
+
+    function stopQueue(): void {
+        queueRef?.current?.stop();
+        setStatus('Reading stopped.');
+    }
+
   return (
     <SafeAreaView style={styles.screen}>
         <ScrollView contentContainerStyle={styles.content}>
@@ -78,6 +172,28 @@ export default function TtsSpikeScreen(): React.JSX.Element {
                 onPress={generate}
                 disabled={busy || !modelInfo || !text.trim()}
             />
+
+            <Button 
+                title='Play'
+                onPress={play}
+                disabled={!generation || busy}
+            />
+
+            <Button
+                title='Stop'
+                onPress={stop}
+                disabled={!generation}
+            />
+
+            <Button
+                title="Read with queue"
+                onPress={readWithQueue}
+                disabled={busy || !modelInfo || !text.trim()}
+            />
+
+            <Button title="Pause queue" onPress={pauseQueue} />
+            <Button title="Resume queue" onPress={resumeQueue} />
+            <Button title="Stop queue" onPress={stopQueue} />
 
             {modelInfo && (
                 <View style={styles.result}>

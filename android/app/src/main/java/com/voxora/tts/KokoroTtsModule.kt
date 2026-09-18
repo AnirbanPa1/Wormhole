@@ -1,5 +1,7 @@
 package com.voxora.tts
 
+
+
 import com.facebook.react.bridge.Arguments
 import com.facebook.react.bridge.Promise
 import com.facebook.react.bridge.ReactApplicationContext
@@ -9,6 +11,8 @@ import java.util.concurrent.Executors
 import java.io.File
 import java.util.UUID
 
+import android.media.MediaPlayer
+
 class KokoroTtsModule(
     reactContext: ReactApplicationContext,
 ): ReactContextBaseJavaModule(reactContext) {
@@ -16,9 +20,22 @@ class KokoroTtsModule(
     private val engine = KokoroEngine()
     private val executor = Executors.newSingleThreadExecutor()
     
+    private var mediaPlayer: MediaPlayer? = null
+    
+    private var listenerCount = 0
+    private var currentAudioPath: String? = null
+    
+    private var playbackCompletionPromise: Promise? = null
+    
+    companion object {
+        private const val PLAYBACK_FINISHED_EVENT = "KokoroPlaybackFinished"
+    }
+    
     override fun getName(): String {
         return "KokoroTts"
     }
+    
+    // ----------------------- Kokoro Model Implementation -------------------------- 
     
     @ReactMethod
     fun initialize(
@@ -65,6 +82,15 @@ class KokoroTtsModule(
         // Already-submitted operations execute in order:
         // initialize/synthesize → release → shutdown.
         executor.shutdown()
+        
+        reactApplicationContext.runOnUiQueueThread {
+            playbackCompletionPromise?.resolve(false)
+            playbackCompletionPromise = null
+    
+            mediaPlayer?.release()
+            mediaPlayer = null
+            currentAudioPath = null
+        }
         
         super.invalidate()
     }
@@ -138,6 +164,162 @@ class KokoroTtsModule(
                 error.message,
                 error,
             )
+        }
+    }
+    
+    // ----------------------- Kokoro Model Control -------------------------- 
+    
+    @ReactMethod
+    fun play(filePath: String, promise: Promise) {
+        reactApplicationContext.runOnUiQueueThread {
+            try {
+                val audioFile = File(filePath).canonicalFile
+                
+                currentAudioPath = audioFile.absolutePath
+                
+                require(audioFile.isFile) {
+                    "Audio file does not exist: ${audioFile.absolutePath}"
+                }
+                
+                mediaPlayer?.release()
+                
+                val newPlayer = MediaPlayer()
+                mediaPlayer = newPlayer
+                
+                newPlayer.setDataSource(audioFile.absolutePath)
+                
+                newPlayer.setOnCompletionListener { 
+                    completedPlayer -> 
+                    if (mediaPlayer !== completedPlayer) {
+                        completedPlayer.release()
+                        return@setOnCompletionListener 
+                    }
+                    
+                    val completedPath = currentAudioPath
+                    val completionPromise = playbackCompletionPromise
+                    playbackCompletionPromise = null
+                    
+                    completedPlayer.release()
+                    mediaPlayer = null
+                    currentAudioPath = null
+                    
+                    completionPromise?.resolve(true)
+                    
+                    if (completedPath != null) {
+                        emitPlaybackFinished(completedPath)
+                    }
+                }
+                
+                newPlayer.prepare()
+                
+                val durationMs = newPlayer.duration
+                
+                newPlayer.start()
+                promise.resolve(durationMs)
+            } catch (error: Throwable) {
+                playbackCompletionPromise?.resolve(false)
+                playbackCompletionPromise = null
+                
+                mediaPlayer?.release()
+                mediaPlayer = null
+                currentAudioPath = null
+                
+                promise.reject(
+                    "E_KOKORO_PLAYBACK",
+                    error.message ?: "Audio playback failed",
+                    error,
+                )
+            }
+        }
+    }
+    
+    @ReactMethod
+    fun stop() {
+        reactApplicationContext.runOnUiQueueThread {
+            playbackCompletionPromise?.resolve(false)
+            playbackCompletionPromise = null
+            
+            mediaPlayer?.release()
+            mediaPlayer = null
+            currentAudioPath = null
+        }
+    }
+    
+    @ReactMethod
+    fun pause(promise: Promise) {
+        reactApplicationContext.runOnUiQueueThread {
+            try {
+                val player = checkNotNull(mediaPlayer) {
+                    "Nothing is currently loaded."
+                }
+                
+                if (player.isPlaying) {
+                    player.pause()
+                }
+                
+                promise.resolve(player.currentPosition)
+            } catch (error: Throwable) {
+                promise.reject(
+                    "E_KOKORO_PAUSE",
+                    error.message ?: "Unable to pause playback",
+                    error,
+                )
+            }
+        }
+    }
+    
+    @ReactMethod
+    fun resume(promise: Promise) {
+        reactApplicationContext.runOnUiQueueThread {
+            try {
+                val player = checkNotNull(mediaPlayer) {
+                    "Nothing is currently paused."
+                }
+                
+                if (!player.isPlaying) {
+                    player.start()
+                }
+                
+                promise.resolve(player.currentPosition)
+            } catch (error: Throwable) {
+                promise.reject(
+                    "E_KOKORO_RESUME",
+                    error.message ?: "Unable to resume playback",
+                    error,
+                )
+            }
+        }
+    }
+    
+    // ----------------------- Kokoro Model Chunk Process Implementation -------------------------- 
+    
+    @ReactMethod
+    fun addListener(eventName: String) {
+        listenerCount += 1
+    }
+    
+    @ReactMethod
+    fun removeListeners(count: Double) {
+        listenerCount = (listenerCount - count.toInt()).coerceAtLeast(0)
+    }
+    
+    private fun emitPlaybackFinished(filePath: String) {
+        
+        val payload = Arguments.createMap().apply {
+            putString("filePath", filePath)
+        }
+        
+        reactApplicationContext.emitDeviceEvent(
+            PLAYBACK_FINISHED_EVENT, 
+            payload,
+        )
+    }
+    
+    @ReactMethod
+    fun waitForPlaybackCompletion(promise: Promise) {
+        reactApplicationContext.runOnUiQueueThread {
+            playbackCompletionPromise?.resolve(false)
+            playbackCompletionPromise = promise
         }
     }
 }
