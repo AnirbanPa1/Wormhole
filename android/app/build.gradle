@@ -75,9 +75,9 @@ android {
     buildToolsVersion rootProject.ext.buildToolsVersion
     compileSdk rootProject.ext.compileSdkVersion
 
-    namespace "com.voxora"
+    namespace "com.wormhole"
     defaultConfig {
-        applicationId "com.voxora"
+        applicationId "com.wormhole"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode 1
@@ -110,6 +110,7 @@ dependencies {
     implementation("com.facebook.react:react-android")
 
     implementation(files("libs/sherpa-onnx-1.13.7.aar"))
+    implementation("org.apache.commons:commons-compress:1.27.1")
 
     if (hermesEnabled.toBoolean()) {
         implementation("com.facebook.react:hermes-android")

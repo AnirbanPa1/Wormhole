@@ -18,7 +18,12 @@ type GenerationResult =
     | {ok: false; error: Error};
 
 export type TtsQueueCallbacks = {
-    onChunkChange?: (index: number, total: number) => void;
+    onChunkChange?: (
+        index: number,
+        total: number,
+        startWordIndex: number,
+        endWordIndex: number,
+    ) => void;
     onComplete?: () => void;
     onError?: (error: Error) => void;
 };
@@ -84,7 +89,6 @@ export class TtsPlaybackQueue {
         this.currentFilePath = null;
         this.chunks = [];
         this.pending.clear();
-
         stopSpeech();
     }
 
@@ -158,9 +162,18 @@ export class TtsPlaybackQueue {
             return;
         }
 
+        const startWordIndex = this.chunks
+            .slice(0, index)
+            .reduce(
+                (total, item) => total + (item.text.match(/\S+/g)?.length ?? 0),
+                0,
+            );
+        const chunkWordCount = this.chunks[index]?.text.match(/\S+/g)?.length ?? 0;
         this.callbacks.onChunkChange?.(
             index,
             this.chunks.length,
+            startWordIndex,
+            startWordIndex + Math.max(0, chunkWordCount - 1),
         );
 
         // Generate the following chunk while this one is playing.
@@ -221,4 +234,5 @@ export class TtsPlaybackQueue {
         this.stop();
         this.callbacks.onError?.(error);
     }
+
 }

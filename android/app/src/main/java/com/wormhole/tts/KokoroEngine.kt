@@ -1,4 +1,4 @@
-package com.voxora.tts
+package com.wormhole.tts
 
 import com.k2fsa.sherpa.onnx.GeneratedAudio
 import com.k2fsa.sherpa.onnx.OfflineTts

@@ -10,8 +10,60 @@ interface TextLayerOverlayProps {
   frameHeight: number;
   onWordPress: (word: WordBox) => void;
   selectedWord?: WordBox | null;
+  highlightedWordRange?: {start: number; end: number} | null;
   scanning?: boolean;
   visible: boolean;
+}
+
+interface HighlightBand {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
+/** Merge consecutive word boxes into a single band for each visual line. */
+function buildHighlightBands(
+  words: WordBox[],
+  range: {start: number; end: number} | null,
+): HighlightBand[] {
+  if (range === null || words.length === 0) {
+    return [];
+  }
+
+  const start = Math.max(0, range.start);
+  const end = Math.min(words.length - 1, range.end);
+  if (start > end) {
+    return [];
+  }
+
+  return words.slice(start, end + 1).reduce<HighlightBand[]>((bands, word) => {
+    const previous = bands.at(-1);
+    if (previous) {
+      const previousCenter = previous.y + previous.height / 2;
+      const wordCenter = word.y + word.height / 2;
+      const sameLine =
+        Math.abs(previousCenter - wordCenter) <=
+        Math.max(previous.height, word.height) * 0.65;
+      const horizontalGap = word.x - (previous.x + previous.width);
+      const visuallyAdjacent =
+        horizontalGap >= -0.01 &&
+        horizontalGap <= Math.max(0.04, word.height * 4);
+
+      if (sameLine && visuallyAdjacent) {
+        const right = Math.max(previous.x + previous.width, word.x + word.width);
+        const bottom = Math.max(previous.y + previous.height, word.y + word.height);
+        previous.x = Math.min(previous.x, word.x);
+        previous.y = Math.min(previous.y, word.y);
+        previous.width = right - previous.x;
+        previous.height = bottom - previous.y;
+        return bands;
+      }
+    }
+
+    bands.push({...word});
+    return bands;
+  }, []);
 }
 
 /**
@@ -28,6 +80,7 @@ function TextLayerOverlay({
   frameHeight,
   onWordPress,
   selectedWord = null,
+  highlightedWordRange = null,
   scanning = false,
   visible,
 }: TextLayerOverlayProps): React.JSX.Element | null {
@@ -78,11 +131,19 @@ function TextLayerOverlay({
     }
 
     const rectX = (frameWidth - rectWidth) / 2;
-    const rectY = (frameHeight - rectHeight) / 2;
+    // ZoomPdfView's `contain` rendering is horizontally centered but anchored
+    // to the top of its frame. Vertically centering this overlay introduced a
+    // false offset whenever the rendered PDF was shorter than the frame.
+    const rectY = 0;
     return { rectX, rectY, rectWidth, rectHeight };
   }, [frameHeight, frameWidth, page]);
 
-  if (!visible) {
+  const highlightBands = useMemo(
+    () => buildHighlightBands(page?.words ?? [], highlightedWordRange),
+    [highlightedWordRange, page?.words],
+  );
+
+  if (!visible && highlightedWordRange === null) {
     return null;
   }
 
@@ -97,16 +158,18 @@ function TextLayerOverlay({
 
   return (
     <View
-      pointerEvents="box-none"
+      pointerEvents={visible ? 'box-none' : 'none'}
       style={StyleSheet.absoluteFill}
       testID="text-layer-overlay">
-      <View
-        pointerEvents="none"
-        style={[
-          styles.captureOutline,
-          {left: rectX, top: rectY, width: rectWidth, height: rectHeight},
-        ]}
-      />
+      {visible && (
+        <View
+          pointerEvents="none"
+          style={[
+            styles.captureOutline,
+            {left: rectX, top: rectY, width: rectWidth, height: rectHeight},
+          ]}
+        />
+      )}
       {scanning && (
         <Animated.View
           pointerEvents="none"
@@ -121,11 +184,28 @@ function TextLayerOverlay({
           ]}
         />
       )}
-      <View pointerEvents="none" style={styles.captureHint}>
-        <Text style={styles.captureHintText}>
-          {scanning ? 'Scanning this page...' : 'Tap a word'}
-        </Text>
-      </View>
+      {visible && (
+        <View pointerEvents="none" style={styles.captureHint}>
+          <Text style={styles.captureHintText}>
+            {scanning ? 'Scanning this page...' : 'Tap a word'}
+          </Text>
+        </View>
+      )}
+      {!scanning && geometry && highlightBands.map((band, index) => (
+        <View
+          key={`narration-band-${index}`}
+          pointerEvents="none"
+          style={[
+            styles.narratedBand,
+            {
+              left: rectX + band.x * rectWidth,
+              top: rectY + band.y * rectHeight,
+              width: band.width * rectWidth,
+              height: band.height * rectHeight,
+            },
+          ]}
+        />
+      ))}
       {!scanning && page?.hasText && geometry && page.words.map((word, index) => {
         const selected = selectedWord === word;
         return (
@@ -191,6 +271,13 @@ const styles = StyleSheet.create({
   selectedWord: {
     backgroundColor: 'rgba(239,173,76,0.48)',
     borderColor: 'rgba(190,105,35,0.9)',
+    borderWidth: 1,
+  },
+  narratedBand: {
+    position: 'absolute',
+    backgroundColor: 'rgba(255, 205, 79, 0.52)',
+    borderColor: 'rgba(218, 132, 29, 0.9)',
+    borderRadius: 3,
     borderWidth: 1,
   },
 });

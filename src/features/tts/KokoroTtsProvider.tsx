@@ -26,6 +26,8 @@ type TtsState = {
     status: TtsStatus;
     currentChunk: number;
     totalChunks: number;
+    currentChunkStartWordIndex: number;
+    currentChunkEndWordIndex: number;
     error: string | null;
 };
 
@@ -41,6 +43,8 @@ const initialState: TtsState = {
     status: 'idle',
     currentChunk: 0,
     totalChunks: 0,
+    currentChunkStartWordIndex: -1,
+    currentChunkEndWordIndex: -1,
     error: null,
 };
 
@@ -63,13 +67,16 @@ export function KokoroTtsProvider({
 
     useEffect(() => {
         const queue = new TtsPlaybackQueue({
-            onChunkChange(index, total) {
-                setState({
+            onChunkChange(index, total, startWordIndex, endWordIndex) {
+                setState(current => ({
+                    ...current,
                     status: 'playing',
                     currentChunk: index + 1,
                     totalChunks: total,
+                    currentChunkStartWordIndex: startWordIndex,
+                    currentChunkEndWordIndex: endWordIndex,
                     error: null,
-                });
+                }));
             },
 
             onComplete() {
@@ -78,6 +85,8 @@ export function KokoroTtsProvider({
                     status: 'ready',
                     currentChunk: 0,
                     totalChunks: 0,
+                    currentChunkStartWordIndex: -1,
+                    currentChunkEndWordIndex: -1,
                 }))
             },
 
@@ -86,6 +95,8 @@ export function KokoroTtsProvider({
                     status: 'error',
                     currentChunk: 0,
                     totalChunks: 0,
+                    currentChunkStartWordIndex: -1,
+                    currentChunkEndWordIndex: -1,
                     error: error.message,
                 });
             },
@@ -132,6 +143,8 @@ export function KokoroTtsProvider({
                     status: 'error',
                     currentChunk: 0,
                     totalChunks: 0,
+                    currentChunkStartWordIndex: -1,
+                    currentChunkEndWordIndex: -1,
                     error: normalized.message,
                 });
 
@@ -168,10 +181,12 @@ export function KokoroTtsProvider({
                 const normalized = normalizeError(error);
 
                 setState({
-                    status: 'error',
-                    currentChunk: 0,
-                    totalChunks: 0,
-                    error: normalized.message,
+                status: 'error',
+                currentChunk: 0,
+                totalChunks: 0,
+                currentChunkStartWordIndex: -1,
+                currentChunkEndWordIndex: -1,
+                error: normalized.message,
                 });
 
                 throw normalized;
@@ -206,6 +221,8 @@ export function KokoroTtsProvider({
             status: initializedRef.current ? 'ready' : 'idle',
             currentChunk: 0,
             totalChunks: 0,
+            currentChunkStartWordIndex: -1,
+            currentChunkEndWordIndex: -1,
             error: null,
         }));
     }, []);

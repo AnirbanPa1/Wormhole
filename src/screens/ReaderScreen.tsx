@@ -14,6 +14,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import {ZoomPdfView} from 'react-native-pdf-light/Zoom';
+import {PdfUtil, type PageDim} from 'react-native-pdf-light';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import DictionarySheet from '../components/DictionarySheet';
 import TextLayerOverlay from '../components/TextLayerOverlay';
@@ -26,10 +27,11 @@ import {extractTextLayerPage} from '../services/pdf-text-extractor.service';
 import {loadTextLayer, saveTextLayer} from '../storage/text-layers';
 import {addCachedWord} from '../storage/word-cache';
 import type {LibraryDocument} from '../types/library';
-import type {TextLayer, WordBox} from '../types/text-layer';
+import type {TextLayer, TextLayerPage, WordBox} from '../types/text-layer';
 import styles from './ReaderScreen.styles';
 
 import { useKokoroTts } from '../features/tts/KokoroTtsProvider';
+import {useAppSettings} from '../features/settings/AppSettingsProvider';
 
 type ReaderScreenProps = {
   document: LibraryDocument;
@@ -37,6 +39,24 @@ type ReaderScreenProps = {
   onPageChange: (page: number) => void;
   onTextLayerReady: (id: string) => void;
 };
+
+const FALLBACK_PAGE_SIZE: PageDim = {width: 612, height: 792};
+
+function fitPageInFrame(
+  pageSize: PageDim,
+  maxWidth: number,
+  maxHeight: number,
+): {width: number; height: number} {
+  if (pageSize.width <= 0 || pageSize.height <= 0) {
+    return fitPageInFrame(FALLBACK_PAGE_SIZE, maxWidth, maxHeight);
+  }
+
+  const scale = Math.min(maxWidth / pageSize.width, maxHeight / pageSize.height);
+  return {
+    width: Math.max(1, pageSize.width * scale),
+    height: Math.max(1, pageSize.height * scale),
+  };
+}
 
 function ReaderScreen({
   document,
@@ -62,8 +82,9 @@ function ReaderScreen({
     [document.pageCount],
   );
   const pagerWidth = Math.max(1, stageSize.width);
-  const pageWidth = Math.max(1, Math.min(pagerWidth - 28, 720));
-  const pageHeight = Math.max(180, stageSize.height - 12);
+  const maxPageWidth = Math.max(1, Math.min(pagerWidth - 28, 720));
+  const maxPageHeight = Math.max(180, stageSize.height - 12);
+  const [pageSizes, setPageSizes] = useState<PageDim[]>([]);
 
   const [layer, setLayer] = useState<TextLayer | null>(null);
   const [extracting, setExtracting] = useState(false);
@@ -76,11 +97,32 @@ function ReaderScreen({
     status: ttsStatus,
     currentChunk,
     totalChunks,
+    currentChunkStartWordIndex,
+    currentChunkEndWordIndex,
     read,
     pause,
     resume,
     stop,
   } = useKokoroTts();
+  const {voiceId, speed} = useAppSettings();
+
+  useEffect(() => {
+    let cancelled = false;
+    PdfUtil.getPageSizes(document.localUri)
+      .then(sizes => {
+        if (!cancelled) {
+          setPageSizes(sizes);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setPageSizes([]);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [document.localUri]);
 
   const currentPageLayer = useMemo(
     () => layer?.pages.find(item => item.pageIndex === page) ?? null,
@@ -95,9 +137,54 @@ function ReaderScreen({
     return currentPageLayer.words
       .map(word => word.text.trim())
       .filter(Boolean)
-      .join(' ')
-      .replace(/\s+([,.;:!?])/g, '$1');
+      .join(' ');
   }, [currentPageLayer]);
+
+  const captureCurrentPage = useCallback(async (): Promise<TextLayerPage | null> => {
+    const cachedPage = layer?.pages.find(item => item.pageIndex === page);
+    if (cachedPage) {
+      return cachedPage.hasText ? cachedPage : null;
+    }
+
+    if (extracting) {
+      return null;
+    }
+
+    setExtracting(true);
+    try {
+      const extracted = await extractTextLayerPage(
+        document.localUri,
+        document.id,
+        page,
+      );
+      const capturedPage = extracted.pages[0];
+      if (!capturedPage?.hasText) {
+        return null;
+      }
+
+      const merged: TextLayer = {
+        documentId: document.id,
+        extractedAt: extracted.extractedAt,
+        pages: [
+          ...(layer?.pages.filter(item => item.pageIndex !== page) ?? []),
+          capturedPage,
+        ].sort((a, b) => a.pageIndex - b.pageIndex),
+      };
+      await saveTextLayer(merged);
+      setLayer(merged);
+      onTextLayerReady(document.id);
+      return capturedPage;
+    } finally {
+      setExtracting(false);
+    }
+  }, [
+    document.id,
+    document.localUri,
+    extracting,
+    layer,
+    onTextLayerReady,
+    page,
+  ]);
 
   const handleNarration = useCallback(async () => {
     try {
@@ -111,16 +198,25 @@ function ReaderScreen({
         return;
       }
 
-      if (!currentPageText) {
+      let textToRead = currentPageText;
+      if (!textToRead) {
+        const capturedPage = await captureCurrentPage();
+        textToRead =
+          capturedPage?.words
+            .map(word => word.text.trim())
+            .filter(Boolean)
+            .join(' ') ?? '';
+      }
+
+      if (!textToRead) {
         Alert.alert(
           'Page text unavailable',
-          'Capture the words on this page before listening.',
+          'Wormhole could not find selectable text on this page. It may be a scanned image.',
         );
-
         return;
       }
 
-      await read(currentPageText);
+      await read(textToRead, voiceId, speed);
     } catch (error) {
       Alert.alert(
         'Narration unavailable',
@@ -130,11 +226,14 @@ function ReaderScreen({
       );
     }
   }, [
+    captureCurrentPage,
     currentPageText,
     pause,
     read,
     resume,
     ttsStatus,
+    voiceId,
+    speed,
   ]);
 
   useEffect(() => {
@@ -246,27 +345,9 @@ function ReaderScreen({
       return;
     }
 
-    setExtracting(true);
     try {
-      const extracted = await extractTextLayerPage(
-        document.localUri,
-        document.id,
-        page,
-      );
-      const capturedPage = extracted.pages[0];
-      if (capturedPage?.hasText) {
-        const merged: TextLayer = {
-          documentId: document.id,
-          extractedAt: extracted.extractedAt,
-          pages: [
-            ...(layer?.pages.filter(item => item.pageIndex !== page) ?? []),
-            capturedPage,
-          ].sort((a, b) => a.pageIndex - b.pageIndex),
-        };
-        await saveTextLayer(merged);
-        setLayer(merged);
-        onTextLayerReady(document.id);
-      } else {
+      const capturedPage = await captureCurrentPage();
+      if (!capturedPage?.hasText) {
         setSelectionMode(false);
         Alert.alert(
           'No text found',
@@ -279,16 +360,12 @@ function ReaderScreen({
         'Page capture failed',
         error instanceof Error ? error.message : 'Please try again.',
       );
-    } finally {
-      setExtracting(false);
     }
   }, [
-    document.id,
-    document.localUri,
+    captureCurrentPage,
     extracting,
     exitSelectionMode,
     layer,
-    onTextLayerReady,
     page,
     selectionMode,
   ]);
@@ -368,13 +445,23 @@ function ReaderScreen({
         ],
       };
       const pageLayer = layer?.pages.find(p => p.pageIndex === pageNumber) ?? null;
+      const sourcePageSize =
+        pageSizes[pageNumber] ??
+        (pageLayer
+          ? {width: pageLayer.pageWidth, height: pageLayer.pageHeight}
+          : FALLBACK_PAGE_SIZE);
+      const frameSize = fitPageInFrame(
+        sourcePageSize,
+        maxPageWidth,
+        maxPageHeight,
+      );
 
       return (
         <View style={[styles.pageSlot, {width: pagerWidth}]}>
           <Animated.View
             style={[
               styles.pageFrame,
-              {width: pageWidth, height: pageHeight},
+              frameSize,
               animatedStyle,
             ]}>
             <ZoomPdfView
@@ -396,10 +483,21 @@ function ReaderScreen({
               style={styles.pdfPage}
             />
             <TextLayerOverlay
-              frameHeight={pageHeight}
-              frameWidth={pageWidth}
+              frameHeight={frameSize.height}
+              frameWidth={frameSize.width}
               onWordPress={handleWordPress}
               page={pageLayer}
+              highlightedWordRange={
+                pageNumber === page &&
+                (ttsStatus === 'playing' || ttsStatus === 'paused') &&
+                currentChunkStartWordIndex >= 0 &&
+                currentChunkEndWordIndex >= currentChunkStartWordIndex
+                  ? {
+                      start: currentChunkStartWordIndex,
+                      end: currentChunkEndWordIndex,
+                    }
+                  : null
+              }
               scanning={extracting && pageNumber === page}
               selectedWord={pageNumber === page ? activeWord : null}
               visible={selectionMode && pageNumber === page}
@@ -414,12 +512,16 @@ function ReaderScreen({
       document.localUri,
       extracting,
       handleWordPress,
+      currentChunkEndWordIndex,
+      currentChunkStartWordIndex,
       layer,
+      maxPageHeight,
+      maxPageWidth,
       page,
-      pageHeight,
-      pageWidth,
+      pageSizes,
       pagerWidth,
       selectionMode,
+      ttsStatus,
       scrollX,
     ],
   );
@@ -443,6 +545,7 @@ function ReaderScreen({
                   : 'Read this page'
             }
             disabled={
+              extracting ||
               ttsStatus === 'initializing' ||
               ttsStatus === 'preparing'
             }
@@ -453,7 +556,8 @@ function ReaderScreen({
                 ttsStatus === 'paused') &&
                 styles.narrationButtonActive,
             ]}>
-            {ttsStatus === 'initializing' ||
+            {extracting ||
+            ttsStatus === 'initializing' ||
             ttsStatus === 'preparing' ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : (

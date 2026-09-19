@@ -17,10 +17,26 @@ import {initDictionary} from './src/services/dictionary.service';
 import {loadLibrary, saveLibrary} from './src/storage/library';
 import type {LibraryDocument} from './src/types/library';
 import TtsSpikeScreen from './src/screens/TtsSpikeScreen';
+import ProfileScreen from './src/screens/ProfileScreen';
+import SettingsScreen from './src/screens/SettingsScreen';
+import type {MainTab} from './src/components/BottomNavigation';
 
 import { KokoroTtsProvider } from './src/features/tts/KokoroTtsProvider';
+import {
+  AppSettingsProvider,
+  useAppSettings,
+} from './src/features/settings/AppSettingsProvider';
 
-type AppView = 'library' | 'saved' | 'tts';
+type AppView = 'library' | 'saved' | 'profile' | 'settings' | 'tts';
+
+function AppStatusBar({readerOpen}: {readerOpen: boolean}): React.JSX.Element {
+  const {darkMode} = useAppSettings();
+  return (
+    <StatusBar
+      barStyle={readerOpen || darkMode ? 'light-content' : 'dark-content'}
+    />
+  );
+}
 
 function App(): React.JSX.Element {
   const [documents, setDocuments] = useState<LibraryDocument[]>([]);
@@ -29,8 +45,12 @@ function App(): React.JSX.Element {
   const [importing, setImporting] = useState(false);
   const [view, setView] = useState<AppView>('library');
 
+  const navigate = useCallback((tab: MainTab) => {
+    setView(tab);
+  }, []);
+
   useEffect(() => {
-    if (view !== 'saved' || selected) {
+    if (view === 'library' || selected) {
       return;
     }
 
@@ -150,8 +170,9 @@ function App(): React.JSX.Element {
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
-        <KokoroTtsProvider>
-          <StatusBar barStyle={selected ? 'light-content' : 'dark-content'} />
+        <AppSettingsProvider>
+          <KokoroTtsProvider>
+          <AppStatusBar readerOpen={selected !== null} />
           {view === 'tts' ? (
             <TtsSpikeScreen />
           ) : selected ? (
@@ -162,7 +183,14 @@ function App(): React.JSX.Element {
               onTextLayerReady={markTextLayerReady}
             />
           ) : view === 'saved' ? (
-            <SavedWordsScreen onBack={() => setView('library')} />
+            <SavedWordsScreen onNavigate={navigate} />
+          ) : view === 'profile' ? (
+            <ProfileScreen
+              bookCount={documents.length}
+              onNavigate={navigate}
+            />
+          ) : view === 'settings' ? (
+            <SettingsScreen onNavigate={navigate} />
           ) : (
             <LibraryScreen
               documents={documents}
@@ -170,10 +198,11 @@ function App(): React.JSX.Element {
               importing={importing}
               onImport={importPdf}
               onOpen={setSelected}
-              onShowSaved={() => setView('saved')}
+              onNavigate={navigate}
             />
           )}
-        </KokoroTtsProvider>
+          </KokoroTtsProvider>
+        </AppSettingsProvider>
       </SafeAreaProvider>
     </GestureHandlerRootView>
   );

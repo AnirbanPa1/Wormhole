@@ -1,4 +1,4 @@
-package com.voxora
+package com.wormhole
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate

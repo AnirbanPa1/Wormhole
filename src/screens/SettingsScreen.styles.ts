@@ -1,0 +1,40 @@
+import {StyleSheet} from 'react-native';
+import {colors} from '../constants/theme';
+
+const styles = StyleSheet.create({
+  safeArea: {flex: 1, backgroundColor: colors.background},
+  safeAreaDark: {backgroundColor: '#171614'},
+  header: {paddingHorizontal: 20, paddingTop: 20, paddingBottom: 12},
+  eyebrow: {fontSize: 10, letterSpacing: 2, color: colors.accentDark, fontWeight: '800'},
+  title: {fontFamily: 'serif', fontSize: 34, lineHeight: 40, fontWeight: '700', color: colors.ink},
+  subtitle: {fontSize: 12, color: colors.muted, marginTop: 2},
+  content: {paddingHorizontal: 20, paddingBottom: 30},
+  sectionLabel: {fontSize: 11, letterSpacing: 1.7, color: colors.muted, fontWeight: '800', marginTop: 16, marginBottom: 8},
+  card: {backgroundColor: colors.paper, borderWidth: 1, borderColor: colors.border, borderRadius: 17, padding: 16},
+  cardDark: {backgroundColor: '#24211E', borderColor: '#3B3732'},
+  cardTitle: {fontSize: 16, color: colors.ink, fontWeight: '800'},
+  cardCopy: {fontSize: 13, lineHeight: 19, color: colors.muted, marginTop: 4},
+  textDark: {color: '#F7F0E6'},
+  mutedDark: {color: '#BDB4A8'},
+  rowBetween: {flexDirection: 'row', alignItems: 'center'},
+  toggleRow: {flexDirection: 'row', alignItems: 'center'},
+  flex: {flex: 1},
+  statusDot: {width: 11, height: 11, borderRadius: 6, backgroundColor: '#A59D94', marginLeft: 12},
+  statusDotReady: {backgroundColor: '#4F9365'},
+  primaryButton: {height: 46, borderRadius: 23, marginTop: 16, backgroundColor: colors.accent, alignItems: 'center', justifyContent: 'center'},
+  primaryButtonText: {fontSize: 14, color: colors.white, fontWeight: '800'},
+  downloadNote: {fontSize: 11, lineHeight: 16, color: colors.muted, textAlign: 'center', marginTop: 9},
+  disabled: {opacity: 0.55},
+  choiceGrid: {flexDirection: 'row', flexWrap: 'wrap', gap: 8},
+  choice: {width: '48%', minHeight: 55, borderRadius: 12, borderWidth: 1, borderColor: colors.border, paddingHorizontal: 11, paddingVertical: 9},
+  choiceDark: {backgroundColor: '#2B2723', borderColor: '#4A443E'},
+  choiceActive: {backgroundColor: colors.accent, borderColor: colors.accent},
+  choiceTitle: {fontSize: 13, color: colors.ink, fontWeight: '700'},
+  choiceCode: {fontSize: 10, color: colors.muted, marginTop: 2},
+  choiceTextActive: {color: colors.white},
+  speedRow: {flexDirection: 'row', gap: 7},
+  speedChoice: {flex: 1, height: 40, borderRadius: 12, borderWidth: 1, borderColor: colors.border, alignItems: 'center', justifyContent: 'center'},
+  speedText: {fontSize: 12, color: colors.ink, fontWeight: '700'},
+});
+
+export default styles;

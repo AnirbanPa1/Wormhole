@@ -21,6 +21,18 @@ export type KokoroPlaybackFinishedEvent = {
     filePath: string;
 }
 
+export type KokoroPlaybackPosition = {
+    positionMs: number;
+    durationMs: number;
+    isPlaying: boolean;
+};
+
+export type KokoroModelStatus = {
+    directory: string;
+    installed: boolean;
+    sizeBytes: number;
+};
+
 type KokoroNativeEventMap = {
     KokoroPlaybackFinished: readonly [
         event: KokoroPlaybackFinishedEvent,
@@ -41,6 +53,10 @@ type KokoroTtsNativeModule = {
 
     prepareModelDirectory(): Promise<string>;
 
+    getModelStatus(): Promise<KokoroModelStatus>;
+
+    downloadModel(): Promise<KokoroModelStatus>;
+
     play(filePath: string): Promise<number>;
 
     stop(): void;
@@ -52,6 +68,8 @@ type KokoroTtsNativeModule = {
     pause(): Promise<number>;
 
     resume(): Promise<number>;
+
+    getPlaybackPosition(): Promise<KokoroPlaybackPosition>;
 
     waitForPlaybackCompletion(): Promise<boolean>;
 };
@@ -91,6 +109,14 @@ export function prepareKokoroModelDirectory(): Promise<string> {
     return getNativeModules().prepareModelDirectory();
 }
 
+export function getKokoroModelStatus(): Promise<KokoroModelStatus> {
+    return getNativeModules().getModelStatus();
+}
+
+export function downloadKokoroModel(): Promise<KokoroModelStatus> {
+    return getNativeModules().downloadModel();
+}
+
 // ----------------------- Kokoro Model Control -------------------------- 
 
 export function playSpeech(filePath: string): Promise<number> {
@@ -107,6 +133,10 @@ export function pauseSpeech(): Promise<number> {
 
 export function resumeSpeech(): Promise<number> {
     return getNativeModules().resume();
+}
+
+export function getPlaybackPosition(): Promise<KokoroPlaybackPosition> {
+    return getNativeModules().getPlaybackPosition();
 }
 
 // ----------------------- Kokoro Model Chunk Process Implementation -------------------------- 

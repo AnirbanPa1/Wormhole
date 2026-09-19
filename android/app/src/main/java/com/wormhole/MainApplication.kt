@@ -1,4 +1,4 @@
-package com.voxora
+package com.wormhole
 
 import android.app.Application
 import com.facebook.react.PackageList
@@ -7,7 +7,7 @@ import com.facebook.react.ReactHost
 import com.facebook.react.ReactNativeApplicationEntryPoint.loadReactNative
 import com.facebook.react.defaults.DefaultReactHost.getDefaultReactHost
 
-import com.voxora.tts.KokoroTtsPackage
+import com.wormhole.tts.KokoroTtsPackage
 
 class MainApplication : Application(), ReactApplication {
 

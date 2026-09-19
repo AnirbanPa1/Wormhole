@@ -1,32 +1,35 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, {useCallback, useEffect, useMemo, useState} from 'react';
 import {
   ActivityIndicator,
   Alert,
   Pressable,
   ScrollView,
   Text,
+  TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import {SafeAreaView} from 'react-native-safe-area-context';
+import BottomNavigation, {type MainTab} from '../components/BottomNavigation';
+import {colors} from '../constants/theme';
+import {useAppSettings} from '../features/settings/AppSettingsProvider';
+import {formatPos} from '../services/dictionary.service';
 import {
   clearWordCache,
   loadWordCache,
   type CachedWord,
 } from '../storage/word-cache';
-import { formatPos } from '../services/dictionary.service';
-import { colors } from '../constants/theme';
 import styles from './SavedWordsScreen.styles';
 
-interface SavedWordsScreenProps {
-  onBack: () => void;
-}
+type SavedWordsScreenProps = {
+  onNavigate(tab: MainTab): void;
+};
 
-function SavedWordsScreen({
-  onBack,
-}: SavedWordsScreenProps): React.JSX.Element {
+function SavedWordsScreen({onNavigate}: SavedWordsScreenProps): React.JSX.Element {
+  const {darkMode} = useAppSettings();
   const [loading, setLoading] = useState(true);
   const [words, setWords] = useState<CachedWord[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     loadWordCache()
@@ -35,12 +38,20 @@ function SavedWordsScreen({
       .finally(() => setLoading(false));
   }, []);
 
+  const filteredWords = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) {
+      return words;
+    }
+    return words.filter(item => item.word.toLowerCase().includes(normalized));
+  }, [query, words]);
+
   const handleClear = useCallback(() => {
     Alert.alert(
       'Clear saved words?',
       'This removes every word you have looked up from this device.',
       [
-        { text: 'Cancel', style: 'cancel' },
+        {text: 'Cancel', style: 'cancel'},
         {
           text: 'Clear',
           style: 'destructive',
@@ -55,17 +66,14 @@ function SavedWordsScreen({
   }, []);
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <SafeAreaView style={[styles.safeArea, darkMode && styles.safeAreaDark]}>
       <View style={styles.header}>
-        <Pressable
-          accessibilityLabel="Back to library"
-          onPress={onBack}
-          style={styles.backButton}>
-          <Text style={styles.backButtonText}>‹</Text>
-        </Pressable>
-        <View style={styles.headerText}>
-          <Text style={styles.eyebrow}>YOUR LOOKUPS</Text>
-          <Text style={styles.title}>Saved Words</Text>
+        <View style={styles.headerCopy}>
+          <Text style={styles.eyebrow}>YOUR COLLECTION</Text>
+          <Text style={[styles.title, darkMode && styles.textDark]}>Saved Words</Text>
+          <Text style={[styles.subtitle, darkMode && styles.mutedDark]}>
+            {words.length} {words.length === 1 ? 'word' : 'words'} from your reading
+          </Text>
         </View>
         <Pressable
           accessibilityLabel="Clear saved words"
@@ -76,84 +84,129 @@ function SavedWordsScreen({
         </Pressable>
       </View>
 
+      <View style={[styles.searchBox, darkMode && styles.searchBoxDark]}>
+        <Text style={styles.searchGlyph}>Aa</Text>
+        <TextInput
+          accessibilityLabel="Search saved words"
+          autoCapitalize="none"
+          autoCorrect={false}
+          onChangeText={setQuery}
+          placeholder="Search saved words"
+          placeholderTextColor={darkMode ? '#8E867C' : '#958D83'}
+          style={[styles.searchInput, darkMode && styles.textDark]}
+          value={query}
+        />
+        {query.length > 0 && (
+          <Pressable accessibilityLabel="Clear search" onPress={() => setQuery('')}>
+            <Text style={styles.searchClear}>×</Text>
+          </Pressable>
+        )}
+      </View>
+
       {loading ? (
         <View style={styles.centered}>
           <ActivityIndicator color={colors.accent} size="large" />
         </View>
       ) : words.length === 0 ? (
         <View style={styles.centered}>
-          <Text style={styles.emptyTitle}>No words saved yet</Text>
-          <Text style={styles.emptyCopy}>
-            Long-press a word on any extracted page of a book to look it up. The
-            words you look up appear here so you can review them later.
+          <View style={styles.emptyGlyph}>
+            <Text style={styles.emptyGlyphText}>Aa</Text>
+          </View>
+          <Text style={[styles.emptyTitle, darkMode && styles.textDark]}>
+            No words saved yet
+          </Text>
+          <Text style={[styles.emptyCopy, darkMode && styles.mutedDark]}>
+            Look up a word while reading and it will wait for you here, even
+            when you are offline.
+          </Text>
+        </View>
+      ) : filteredWords.length === 0 ? (
+        <View style={styles.centered}>
+          <Text style={[styles.emptyTitle, darkMode && styles.textDark]}>
+            No matching words
+          </Text>
+          <Text style={[styles.emptyCopy, darkMode && styles.mutedDark]}>
+            Try a different spelling or a shorter search.
           </Text>
         </View>
       ) : (
-        <ScrollView contentContainerStyle={styles.list}>
-          <Text style={styles.countLabel}>
-            {words.length} WORD{words.length === 1 ? '' : 'S'}
-          </Text>
-          {words.map(item => {
+        <ScrollView
+          contentContainerStyle={styles.list}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}>
+          {filteredWords.map(item => {
             const isOpen = expanded === item.word;
             const first = item.result?.entries[0];
             const notFound = !item.result || item.result.entries.length === 0;
             return (
               <Pressable
+                accessibilityLabel={`${item.word}, ${isOpen ? 'collapse' : 'show definition'}`}
                 key={item.word}
                 onPress={() =>
                   setExpanded(current => (current === item.word ? null : item.word))
                 }
-                style={styles.card}>
+                style={[styles.card, darkMode && styles.cardDark]}>
                 <View style={styles.cardHeader}>
-                  <Text style={styles.cardWord}>{item.word}</Text>
+                  <Text style={[styles.cardWord, darkMode && styles.textDark]}>
+                    {item.word}
+                  </Text>
                   {first ? (
                     <Text style={styles.cardPos}>
                       {formatPos(first.pos).toUpperCase()}
                     </Text>
                   ) : (
-                    <Text style={styles.cardPosMuted}>—</Text>
+                    <Text style={[styles.cardPosMuted, darkMode && styles.mutedDark]}>—</Text>
                   )}
                 </View>
 
                 {notFound ? (
-                  <Text style={styles.cardNotFound}>Not found in dictionary</Text>
+                  <Text style={[styles.cardNotFound, darkMode && styles.mutedDark]}>
+                    Not found in the offline dictionary
+                  </Text>
                 ) : isOpen ? (
                   <View style={styles.cardDetail}>
-                    {item.result?.entries.map((entry, ei) => (
-                      <View key={`${entry.pos}-${ei}`} style={styles.entry}>
+                    {item.result?.entries.map((entry, entryIndex) => (
+                      <View key={`${entry.pos}-${entryIndex}`} style={styles.entry}>
                         <Text style={styles.entryPos}>
                           {formatPos(entry.pos).toUpperCase()}
                         </Text>
-                        {entry.defs.map((def, di) => (
-                          <Text key={di} style={styles.definition}>
-                            {entry.defs.length > 1 ? `${di + 1}. ` : ''}
-                            {def}
+                        {entry.defs.map((definition, definitionIndex) => (
+                          <Text
+                            key={definitionIndex}
+                            style={[styles.definition, darkMode && styles.textDark]}>
+                            {entry.defs.length > 1 ? `${definitionIndex + 1}. ` : ''}
+                            {definition}
                           </Text>
                         ))}
                         {entry.examples?.[0] && (
-                          <Text style={styles.example}>
+                          <Text style={[styles.example, darkMode && styles.mutedDark]}>
                             “{entry.examples[0]}”
                           </Text>
                         )}
                       </View>
                     ))}
+                    <Text style={styles.collapseHint}>Tap to collapse</Text>
                   </View>
                 ) : (
-                  <Text numberOfLines={1} style={styles.cardPreview}>
-                    {first?.defs[0]}
-                  </Text>
+                  <View style={styles.previewRow}>
+                    <Text
+                      numberOfLines={2}
+                      style={[styles.cardPreview, darkMode && styles.mutedDark]}>
+                      {first?.defs[0]}
+                    </Text>
+                    <Text style={styles.expandArrow}>›</Text>
+                  </View>
                 )}
               </Pressable>
             );
           })}
+          <Text style={[styles.attribution, darkMode && styles.mutedDark]}>
+            Simple English Wiktionary · OEWN fallback
+          </Text>
         </ScrollView>
       )}
 
-      <View style={styles.footer}>
-        <Text style={styles.attribution}>
-          Simple English Wiktionary · OEWN fallback
-        </Text>
-      </View>
+      <BottomNavigation active="saved" onNavigate={onNavigate} />
     </SafeAreaView>
   );
 }
