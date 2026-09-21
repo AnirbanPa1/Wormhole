@@ -13,7 +13,10 @@ import java.util.UUID
 import java.io.BufferedInputStream
 import java.io.FileInputStream
 import java.io.FileOutputStream
+import java.io.InputStream
+import java.io.OutputStream
 import java.net.URL
+import java.security.MessageDigest
 
 import android.media.MediaPlayer
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
@@ -40,6 +43,12 @@ class KokoroTtsModule(
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-en-v0_19.tar.bz2"
         private const val MODEL_FOLDER = "kokoro-en-v0_19"
         private const val ARCHIVE_FOLDER = "kokoro-int8-en-v0_19"
+        private const val MODEL_ARCHIVE_SHA256 =
+            "c9f0dd393615805b0bab050c340834d5e684e732aec91c0e860cd30e982c08bd"
+        private const val MAX_ARCHIVE_BYTES = 120L * 1024L * 1024L
+        private const val MAX_EXTRACTED_BYTES = 600L * 1024L * 1024L
+        private const val MAX_ENTRY_BYTES = 500L * 1024L * 1024L
+        private const val MAX_ARCHIVE_ENTRIES = 2_000
     }
     
     override fun getName(): String {
@@ -56,8 +65,13 @@ class KokoroTtsModule(
     ) {
         executor.execute {
             try {
+                val safeModelDirectory = requireDescendant(
+                    File(modelDirectory),
+                    File(reactApplicationContext.filesDir, "models"),
+                    "Kokoro model directory",
+                )
                 val info = engine.initialize(
-                    modelDirectory = modelDirectory,
+                    modelDirectory = safeModelDirectory.absolutePath,
                     threadCount = threadCount.toInt(),
                 )
                 
@@ -182,7 +196,11 @@ class KokoroTtsModule(
     fun play(filePath: String, promise: Promise) {
         reactApplicationContext.runOnUiQueueThread {
             try {
-                val audioFile = File(filePath).canonicalFile
+                val audioFile = requireDescendant(
+                    File(filePath),
+                    File(reactApplicationContext.cacheDir, "kokoro-audio"),
+                    "Kokoro audio file",
+                )
                 
                 currentAudioPath = audioFile.absolutePath
                 
@@ -346,40 +364,75 @@ class KokoroTtsModule(
                     connectTimeout = 30_000
                     readTimeout = 60_000
                 }
+                val contentLength = connection.contentLengthLong
+                check(contentLength < 0L || contentLength <= MAX_ARCHIVE_BYTES) {
+                    "Kokoro model archive exceeds the download safety limit"
+                }
                 connection.getInputStream().use { input ->
                     FileOutputStream(archiveFile).use { output ->
-                        input.copyTo(output, 128 * 1024)
+                        copyWithLimit(
+                            input = input,
+                            output = output,
+                            maxBytes = MAX_ARCHIVE_BYTES,
+                            label = "Kokoro model archive",
+                        )
                     }
+                }
+                check(sha256(archiveFile) == MODEL_ARCHIVE_SHA256) {
+                    "Kokoro model archive failed integrity verification"
                 }
 
                 BZip2CompressorInputStream(
                     BufferedInputStream(FileInputStream(archiveFile)),
                 ).use { compressed ->
                     TarArchiveInputStream(compressed).use { archive ->
+                        var entryCount = 0
+                        var extractedBytes = 0L
                         var entry = archive.nextTarEntry
                         while (entry != null) {
-                            if (!entry.isSymbolicLink && !entry.isLink) {
-                                val destination = File(stagingDirectory, entry.name)
-                                    .canonicalFile
-                                val stagingPath = stagingDirectory.canonicalPath + File.separator
-                                check(destination.path.startsWith(stagingPath)) {
-                                    "Unsafe path in Kokoro model archive"
-                                }
+                            entryCount += 1
+                            check(entryCount <= MAX_ARCHIVE_ENTRIES) {
+                                "Kokoro model archive contains too many entries"
+                            }
+                            check(!entry.isSymbolicLink && !entry.isLink) {
+                                "Kokoro model archive contains a link entry"
+                            }
+                            check(entry.isDirectory || entry.isFile) {
+                                "Kokoro model archive contains an unsupported entry"
+                            }
+                            check(entry.size in 0L..MAX_ENTRY_BYTES) {
+                                "Kokoro model archive entry exceeds the safety limit"
+                            }
 
-                                if (entry.isDirectory) {
-                                    check(destination.isDirectory || destination.mkdirs()) {
-                                        "Unable to create ${destination.absolutePath}"
-                                    }
-                                } else {
-                                    val parent = requireNotNull(destination.parentFile) {
-                                        "Archive entry has no parent directory"
-                                    }
-                                    check(parent.isDirectory || parent.mkdirs()) {
-                                        "Unable to create ${parent.absolutePath}"
-                                    }
-                                    FileOutputStream(destination).use { output ->
-                                        archive.copyTo(output, 128 * 1024)
-                                    }
+                            val destination = File(stagingDirectory, entry.name)
+                                .canonicalFile
+                            val stagingPath = stagingDirectory.canonicalPath + File.separator
+                            check(destination.path.startsWith(stagingPath)) {
+                                "Unsafe path in Kokoro model archive"
+                            }
+
+                            if (entry.isDirectory) {
+                                check(destination.isDirectory || destination.mkdirs()) {
+                                    "Unable to create ${destination.absolutePath}"
+                                }
+                            } else {
+                                val parent = requireNotNull(destination.parentFile) {
+                                    "Archive entry has no parent directory"
+                                }
+                                check(parent.isDirectory || parent.mkdirs()) {
+                                    "Unable to create ${parent.absolutePath}"
+                                }
+                                val remainingBytes = MAX_EXTRACTED_BYTES - extractedBytes
+                                check(remainingBytes > 0L) {
+                                    "Kokoro model archive exceeds the extraction safety limit"
+                                }
+                                FileOutputStream(destination).use { output ->
+                                    extractedBytes += copyWithLimit(
+                                        input = archive,
+                                        output = output,
+                                        maxBytes = minOf(MAX_ENTRY_BYTES, remainingBytes),
+                                        label = "Kokoro model archive extraction",
+                                    )
                                 }
                             }
                             entry = archive.nextTarEntry
@@ -419,6 +472,57 @@ class KokoroTtsModule(
         reactApplicationContext.filesDir,
         "models/$MODEL_FOLDER",
     )
+
+    private fun requireDescendant(
+        candidate: File,
+        root: File,
+        label: String,
+    ): File {
+        val canonicalCandidate = candidate.canonicalFile
+        val canonicalRoot = root.canonicalFile
+        val rootPrefix = canonicalRoot.path + File.separator
+        require(canonicalCandidate.path.startsWith(rootPrefix)) {
+            "$label must stay inside ${canonicalRoot.absolutePath}"
+        }
+        return canonicalCandidate
+    }
+
+    private fun copyWithLimit(
+        input: InputStream,
+        output: OutputStream,
+        maxBytes: Long,
+        label: String,
+    ): Long {
+        val buffer = ByteArray(128 * 1024)
+        var total = 0L
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) {
+                return total
+            }
+            val nextTotal = total + count
+            check(nextTotal <= maxBytes) {
+                "$label exceeds the safety limit"
+            }
+            output.write(buffer, 0, count)
+            total = nextTotal
+        }
+    }
+
+    private fun sha256(file: File): String {
+        val digest = MessageDigest.getInstance("SHA-256")
+        FileInputStream(file).use { input ->
+            val buffer = ByteArray(128 * 1024)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) {
+                    break
+                }
+                digest.update(buffer, 0, count)
+            }
+        }
+        return digest.digest().joinToString("") { byte -> "%02x".format(byte) }
+    }
 
     private fun isModelInstalled(directory: File): Boolean =
         directory.isDirectory &&

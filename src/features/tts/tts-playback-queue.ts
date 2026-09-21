@@ -18,11 +18,17 @@ type GenerationResult =
     | {ok: false; error: Error};
 
 export type TtsQueueCallbacks = {
+    onPreparing?: (
+        index: number,
+        total: number,
+        text: string,
+    ) => void;
     onChunkChange?: (
         index: number,
         total: number,
         startWordIndex: number,
         endWordIndex: number,
+        text: string,
     ) => void;
     onComplete?: () => void;
     onError?: (error: Error) => void;
@@ -35,6 +41,9 @@ function normalizeError(error: unknown): Error {
 }
 
 export class TtsPlaybackQueue {
+    private static readonly STARTUP_BUFFER_SIZE = 2;
+    private static readonly PLAYBACK_LOOKAHEAD = 2;
+
     private chunks: TtsTextChunk[] = [];
     private pending = new Map<number, Promise<GenerationResult>>();
 
@@ -70,17 +79,65 @@ export class TtsPlaybackQueue {
             throw new Error('There is no text to read.');
         }
 
-        this.prepareChunk(0, sessionId, voiceId, speed);
+        const startupGenerations: Promise<GenerationResult>[] = [];
+        const startupCount = Math.min(
+            TtsPlaybackQueue.STARTUP_BUFFER_SIZE,
+            this.chunks.length,
+        );
+
+        for (let index = 0; index < startupCount; index += 1) {
+            this.prepareChunk(index, sessionId, voiceId, speed);
+            const generation = this.pending.get(index);
+            if (generation) {
+                startupGenerations.push(generation);
+            }
+        }
+
+        // Kokoro runs synthesis on its own serial executor while MediaPlayer
+        // plays on Android's UI thread. Holding one completed chunk in reserve
+        // gives the synthesizer a full chunk of lead time and prevents gaps.
+        await Promise.all(startupGenerations);
+
+        if (sessionId !== this.sessionId) {
+            return;
+        }
 
         await this.playChunk(0, sessionId, voiceId, speed);
     }
 
-    pause(): Promise<number> {
+    pause(): Promise<number | null> {
+        if (!this.currentFilePath) {
+            return Promise.resolve(null);
+        }
         return pauseSpeech();
     }
 
-    resume(): Promise<number> {
+    resume(): Promise<number | null> {
+        if (!this.currentFilePath) {
+            return Promise.resolve(null);
+        }
         return resumeSpeech();
+    }
+
+    async skipBy(offset: number): Promise<boolean> {
+        if (this.chunks.length === 0 || this.currentIndex < 0) {
+            return false;
+        }
+
+        const nextIndex = Math.max(
+            0,
+            Math.min(this.chunks.length - 1, this.currentIndex + offset),
+        );
+        if (nextIndex === this.currentIndex) {
+            return false;
+        }
+
+        this.sessionId += 1;
+        const sessionId = this.sessionId;
+        this.currentFilePath = null;
+        stopSpeech();
+        await this.playChunk(nextIndex, sessionId, this.voiceId, this.speed);
+        return true;
     }
 
     stop(): void {
@@ -131,6 +188,16 @@ export class TtsPlaybackQueue {
         voiceId: number,
         speed: number,
     ): Promise<void> {
+        if (sessionId !== this.sessionId || !this.chunks[index]) {
+            return;
+        }
+
+        this.currentFilePath = null;
+        this.callbacks.onPreparing?.(
+            index,
+            this.chunks.length,
+            this.chunks[index].text,
+        );
         this.prepareChunk(index, sessionId, voiceId, speed);
 
         const generation = this.pending.get(index);
@@ -174,15 +241,24 @@ export class TtsPlaybackQueue {
             this.chunks.length,
             startWordIndex,
             startWordIndex + Math.max(0, chunkWordCount - 1),
+            this.chunks[index].text,
         );
 
-        // Generate the following chunk while this one is playing.
-        this.prepareChunk(
-            index + 1,
-            sessionId,
-            voiceId,
-            speed,
-        );
+        // Keep two chunks queued ahead. Native synthesis is serialized, so
+        // this does not run multiple model sessions concurrently; it simply
+        // lets Kokoro continue working while MediaPlayer consumes the buffer.
+        for (
+            let lookahead = 1;
+            lookahead <= TtsPlaybackQueue.PLAYBACK_LOOKAHEAD;
+            lookahead += 1
+        ) {
+            this.prepareChunk(
+                index + lookahead,
+                sessionId,
+                voiceId,
+                speed,
+            );
+        }
 
         void completion.then(
             completed => {
@@ -207,6 +283,7 @@ export class TtsPlaybackQueue {
             return;
         }
 
+        this.currentFilePath = null;
         const sessionId = this.sessionId;
         const nextIndex = this.currentIndex + 1;
 

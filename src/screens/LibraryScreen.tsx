@@ -123,13 +123,22 @@ function LibraryScreen({
               onPress={onImport}
               style={({pressed}) => [
                 styles.importButton,
+                darkMode && styles.importButtonDark,
                 pressed && styles.pressed,
                 importing && styles.disabled,
               ]}>
               {importing ? (
-                <ActivityIndicator color={colors.white} />
+                <ActivityIndicator
+                  color={darkMode ? colors.ink : colors.focus}
+                />
               ) : (
-                <Text style={styles.importButtonText}>+ PDF</Text>
+                <Text
+                  style={[
+                    styles.importButtonText,
+                    darkMode && styles.importButtonTextDark,
+                  ]}>
+                  + PDF
+                </Text>
               )}
             </Pressable>
           </View>
@@ -147,8 +156,16 @@ function LibraryScreen({
                 Import a PDF from your phone. Wormhole keeps a private local copy
                 so you can read and listen offline.
               </Text>
-              <Pressable onPress={onImport} style={styles.emptyButton}>
-                <Text style={styles.emptyButtonText}>Choose a PDF</Text>
+              <Pressable
+                onPress={onImport}
+                style={[styles.emptyButton, darkMode && styles.emptyButtonDark]}>
+                <Text
+                  style={[
+                    styles.emptyButtonText,
+                    darkMode && styles.emptyButtonTextDark,
+                  ]}>
+                  Choose a PDF
+                </Text>
               </Pressable>
             </View>
           ) : (
@@ -175,7 +192,11 @@ function LibraryScreen({
                     Page {Math.min(currentBook.currentPage + 1, currentBook.pageCount)} of{' '}
                     {currentBook.pageCount}
                   </Text>
-                  <View style={styles.progressTrack}>
+                  <View
+                    style={[
+                      styles.progressTrack,
+                      darkMode && styles.progressTrackDark,
+                    ]}>
                     <View
                       style={[styles.progressFill, {width: `${progressFor(currentBook)}%`}]}
                     />
@@ -220,7 +241,11 @@ function LibraryScreen({
                           Page {Math.min(document.currentPage + 1, document.pageCount)} of{' '}
                           {document.pageCount}
                         </Text>
-                        <View style={styles.progressTrack}>
+                        <View
+                          style={[
+                            styles.progressTrack,
+                            darkMode && styles.progressTrackDark,
+                          ]}>
                           <View
                             style={[
                               styles.progressFill,

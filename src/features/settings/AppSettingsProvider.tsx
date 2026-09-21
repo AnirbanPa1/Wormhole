@@ -30,6 +30,7 @@ type StoredSettings = {
   voiceId: number;
   speed: number;
   darkMode: boolean;
+  immersiveMode: boolean;
 };
 
 type AppSettingsContextValue = StoredSettings & {
@@ -37,12 +38,14 @@ type AppSettingsContextValue = StoredSettings & {
   setVoiceId(value: number): void;
   setSpeed(value: number): void;
   setDarkMode(value: boolean): void;
+  setImmersiveMode(value: boolean): void;
 };
 
 const defaults: StoredSettings = {
   voiceId: 1,
   speed: 1,
   darkMode: false,
+  immersiveMode: false,
 };
 
 const AppSettingsContext = createContext<AppSettingsContextValue | null>(null);
@@ -72,6 +75,10 @@ export function AppSettingsProvider({
             typeof parsed.darkMode === 'boolean'
               ? parsed.darkMode
               : defaults.darkMode,
+          immersiveMode:
+            typeof parsed.immersiveMode === 'boolean'
+              ? parsed.immersiveMode
+              : defaults.immersiveMode,
         });
       })
       .catch(() => undefined)
@@ -95,6 +102,7 @@ export function AppSettingsProvider({
       setVoiceId: voiceId => update({voiceId}),
       setSpeed: speed => update({speed}),
       setDarkMode: darkMode => update({darkMode}),
+      setImmersiveMode: immersiveMode => update({immersiveMode}),
     }),
     [hydrated, settings, update],
   );

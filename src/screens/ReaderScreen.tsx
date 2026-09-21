@@ -36,6 +36,7 @@ import {useAppSettings} from '../features/settings/AppSettingsProvider';
 type ReaderScreenProps = {
   document: LibraryDocument;
   onBack: () => void;
+  onOpenImmersive: () => void;
   onPageChange: (page: number) => void;
   onTextLayerReady: (id: string) => void;
 };
@@ -61,6 +62,7 @@ function fitPageInFrame(
 function ReaderScreen({
   document,
   onBack,
+  onOpenImmersive,
   onPageChange,
   onTextLayerReady,
 }: ReaderScreenProps): React.JSX.Element {
@@ -104,7 +106,7 @@ function ReaderScreen({
     resume,
     stop,
   } = useKokoroTts();
-  const {voiceId, speed} = useAppSettings();
+  const {voiceId, speed, immersiveMode} = useAppSettings();
 
   useEffect(() => {
     let cancelled = false;
@@ -195,6 +197,9 @@ function ReaderScreen({
 
       if (ttsStatus === 'paused') {
         await resume();
+        if (immersiveMode) {
+          onOpenImmersive();
+        }
         return;
       }
 
@@ -216,6 +221,9 @@ function ReaderScreen({
         return;
       }
 
+      if (immersiveMode) {
+        onOpenImmersive();
+      }
       await read(textToRead, voiceId, speed);
     } catch (error) {
       Alert.alert(
@@ -231,6 +239,8 @@ function ReaderScreen({
     pause,
     read,
     resume,
+    immersiveMode,
+    onOpenImmersive,
     ttsStatus,
     voiceId,
     speed,
@@ -559,13 +569,23 @@ function ReaderScreen({
             {extracting ||
             ttsStatus === 'initializing' ||
             ttsStatus === 'preparing' ? (
-              <ActivityIndicator size="small" color="#FFFFFF" />
+              <ActivityIndicator size="small" color="#171614" />
             ) : (
               <Text style={styles.narrationButtonText}>
                 {ttsStatus === 'playing' ? 'Ⅱ' : '▶'}
               </Text>
             )}
           </Pressable>
+          {(ttsStatus === 'playing' ||
+            ttsStatus === 'paused' ||
+            ttsStatus === 'preparing') && (
+            <Pressable
+              accessibilityLabel="Open immersive listening mode"
+              onPress={onOpenImmersive}
+              style={styles.immersiveButton}>
+              <Text style={styles.immersiveButtonText}>♪</Text>
+            </Pressable>
+          )}
           <Pressable
             accessibilityLabel={
               selectionMode ? 'Exit word selection' : 'Capture words on this page'

@@ -1,5 +1,11 @@
 import React from 'react';
 import {Pressable, StyleSheet, Text, View} from 'react-native';
+import type {LucideIcon} from 'lucide-react-native';
+import BookA from 'lucide-react-native/icons/book-a';
+import Bolt from 'lucide-react-native/icons/bolt';
+import CircleUserRound from 'lucide-react-native/icons/circle-user-round';
+import Library from 'lucide-react-native/icons/library';
+import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {colors} from '../constants/theme';
 import {useAppSettings} from '../features/settings/AppSettingsProvider';
 
@@ -10,11 +16,11 @@ type BottomNavigationProps = {
   onNavigate(tab: MainTab): void;
 };
 
-const tabs: Array<{id: MainTab; glyph: string; label: string}> = [
-  {id: 'library', glyph: 'L', label: 'Library'},
-  {id: 'saved', glyph: 'Aa', label: 'Saved Words'},
-  {id: 'settings', glyph: 'S', label: 'Settings'},
-  {id: 'profile', glyph: 'P', label: 'Profile'},
+const tabs: Array<{id: MainTab; icon: LucideIcon; label: string}> = [
+  {id: 'library', icon: Library, label: 'Library'},
+  {id: 'saved', icon: BookA, label: 'Saved Words'},
+  {id: 'settings', icon: Bolt, label: 'Settings'},
+  {id: 'profile', icon: CircleUserRound, label: 'Profile'},
 ];
 
 function BottomNavigation({
@@ -22,11 +28,24 @@ function BottomNavigation({
   onNavigate,
 }: BottomNavigationProps): React.JSX.Element {
   const {darkMode} = useAppSettings();
+  const insets = useSafeAreaInsets();
+  const bottomOffset = Math.max(8, insets.bottom + 8);
 
   return (
-    <View style={[styles.container, darkMode && styles.containerDark]}>
+    <View
+      style={[
+        styles.container,
+        {bottom: bottomOffset},
+        darkMode && styles.containerDark,
+      ]}>
       {tabs.map(tab => {
         const selected = tab.id === active;
+        const Icon = tab.icon;
+        const iconColor = selected
+          ? colors.ink
+          : darkMode
+            ? colors.darkMuted
+            : colors.muted;
         return (
           <Pressable
             accessibilityLabel={`Open ${tab.label}`}
@@ -34,16 +53,9 @@ function BottomNavigation({
             accessibilityState={{selected}}
             key={tab.id}
             onPress={() => onNavigate(tab.id)}
-            style={styles.tab}>
-            <View style={[styles.glyph, selected && styles.glyphActive]}>
-              <Text
-                style={[
-                  styles.glyphText,
-                  selected && styles.activeText,
-                  darkMode && !selected && styles.textDark,
-                ]}>
-                {tab.glyph}
-              </Text>
+            style={[styles.tab, selected && styles.tabActive]}>
+            <View style={styles.glyph}>
+              <Icon color={iconColor} size={20} strokeWidth={selected ? 2.5 : 2} />
             </View>
             <Text
               numberOfLines={1}
@@ -63,37 +75,44 @@ function BottomNavigation({
 
 const styles = StyleSheet.create({
   container: {
-    minHeight: 68,
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    zIndex: 20,
+    minHeight: 66,
+    marginHorizontal: 14,
+    marginBottom: 8,
     paddingHorizontal: 8,
-    paddingTop: 7,
-    paddingBottom: 5,
+    paddingVertical: 6,
     flexDirection: 'row',
-    backgroundColor: '#FFFAF6',
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: colors.border,
+    backgroundColor: colors.paper,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 22,
+    shadowColor: colors.shadow,
+    shadowOpacity: 0.1,
+    shadowRadius: 16,
+    shadowOffset: {width: 0, height: 8},
+    elevation: 6,
   },
   containerDark: {
-    backgroundColor: '#201D1A',
-    borderTopColor: '#3B3732',
+    backgroundColor: colors.darkSurface,
+    borderColor: colors.darkBorder,
   },
   tab: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    borderRadius: 16,
+    marginHorizontal: 2,
   },
+  tabActive: {backgroundColor: colors.focus},
   glyph: {
-    minWidth: 28,
-    height: 25,
-    borderRadius: 13,
+    minWidth: 34,
+    height: 28,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-  },
-  glyphActive: {backgroundColor: '#F3D8CD'},
-  glyphText: {
-    color: colors.muted,
-    fontSize: 13,
-    fontFamily: 'serif',
-    fontWeight: '800',
   },
   label: {
     color: colors.muted,
@@ -101,8 +120,8 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     marginTop: 2,
   },
-  activeText: {color: colors.accentDark},
-  textDark: {color: '#C9C0B5'},
+  activeText: {color: colors.ink},
+  textDark: {color: colors.darkMuted},
 });
 
 export default BottomNavigation;

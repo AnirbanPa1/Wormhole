@@ -42,7 +42,7 @@ function ProfileScreen({bookCount, onNavigate}: ProfileScreenProps): React.JSX.E
             <Text style={[styles.statValue, darkMode && styles.textDark]}>{bookCount}</Text>
             <Text style={[styles.statLabel, darkMode && styles.mutedDark]}>BOOKS</Text>
           </View>
-          <View style={styles.divider} />
+          <View style={[styles.divider, darkMode && styles.dividerDark]} />
           <View style={styles.stat}>
             <Text style={[styles.statValue, darkMode && styles.textDark]}>{wordCount}</Text>
             <Text style={[styles.statLabel, darkMode && styles.mutedDark]}>SAVED WORDS</Text>

@@ -12,6 +12,7 @@ import {
   type DictionaryResult,
 } from '../services/dictionary.service';
 import { colors } from '../constants/theme';
+import {useAppSettings} from '../features/settings/AppSettingsProvider';
 
 interface DictionarySheetProps {
   visible: boolean;
@@ -28,6 +29,8 @@ function DictionarySheet({
   result,
   onClose,
 }: DictionarySheetProps): React.JSX.Element | null {
+  const {darkMode} = useAppSettings();
+
   return (
     <Modal
       animationType="slide"
@@ -40,15 +43,19 @@ function DictionarySheet({
           onPress={onClose}
           style={styles.backdrop}
         />
-        <View style={styles.sheet}>
-          <View style={styles.grabber} />
+        <View style={[styles.sheet, darkMode && styles.sheetDark]}>
+          <View style={[styles.grabber, darkMode && styles.grabberDark]} />
           <View style={styles.header}>
-            <Text style={styles.word}>{word ?? ''}</Text>
+            <Text style={[styles.word, darkMode && styles.textDark]}>
+              {word ?? ''}
+            </Text>
             <Pressable
               accessibilityLabel="Close"
               onPress={onClose}
-              style={styles.closeButton}>
-              <Text style={styles.closeButtonText}>✕</Text>
+              style={[styles.closeButton, darkMode && styles.closeButtonDark]}>
+              <Text style={[styles.closeButtonText, darkMode && styles.textDark]}>
+                ✕
+              </Text>
             </Pressable>
           </View>
 
@@ -56,23 +63,32 @@ function DictionarySheet({
             contentContainerStyle={styles.body}
             showsVerticalScrollIndicator={false}>
             {!word ? (
-              <Text style={styles.empty}>No word selected.</Text>
+              <Text style={[styles.empty, darkMode && styles.mutedDark]}>
+                No word selected.
+              </Text>
             ) : !result || result.entries.length === 0 ? (
               <View>
-                <Text style={styles.notFoundTitle}>Not in dictionary</Text>
-                <Text style={styles.copy}>
+                <Text style={[styles.notFoundTitle, darkMode && styles.textDark]}>
+                  Not in dictionary
+                </Text>
+                <Text style={[styles.copy, darkMode && styles.mutedDark]}>
                   “{word}” could not be found in the bundled offline dictionaries.
                 </Text>
               </View>
             ) : (
               <View>
                 {result.matchedLemma !== word && (
-                  <Text style={styles.matched}>
+                  <Text style={[styles.matched, darkMode && styles.accentTextDark]}>
                     Found as “{result.matchedLemma}”
                   </Text>
                 )}
                 {result.entries.map((entry, index) => (
-                  <View key={`${entry.pos}-${index}`} style={styles.entryBlock}>
+                  <View
+                    key={`${entry.pos}-${index}`}
+                    style={[
+                      styles.entryBlock,
+                      darkMode && styles.entryBlockDark,
+                    ]}>
                     <View style={styles.posRow}>
                       <View style={styles.posBadge}>
                         <Text style={styles.posBadgeText}>
@@ -80,7 +96,11 @@ function DictionarySheet({
                         </Text>
                       </View>
                       {index === 0 && (
-                        <Text style={styles.meaningLabel}>
+                        <Text
+                          style={[
+                            styles.meaningLabel,
+                            darkMode && styles.mutedDark,
+                          ]}>
                           {entry.source === 'simple-wiktionary'
                             ? 'SIMPLE DEFINITION'
                             : 'MEANING'}
@@ -88,21 +108,40 @@ function DictionarySheet({
                       )}
                     </View>
                     {entry.defs.map((definition, defIndex) => (
-                      <Text key={defIndex} style={styles.definition}>
+                      <Text
+                        key={defIndex}
+                        style={[styles.definition, darkMode && styles.textDark]}>
                         {entry.defs.length > 1 ? `${defIndex + 1}. ` : ''}
                         {definition}
                       </Text>
                     ))}
                     {entry.examples?.map((example, exampleIndex) => (
                       <View key={exampleIndex} style={styles.exampleBlock}>
-                        <Text style={styles.exampleLabel}>EXAMPLE</Text>
-                        <Text style={styles.example}>“{example}”</Text>
+                        <Text
+                          style={[
+                            styles.exampleLabel,
+                            darkMode && styles.mutedDark,
+                          ]}>
+                          EXAMPLE
+                        </Text>
+                        <Text style={[styles.example, darkMode && styles.textDark]}>
+                          “{example}”
+                        </Text>
                       </View>
                     ))}
                     {entry.syn.length > 0 && (
                       <View style={styles.synRow}>
-                        <Text style={styles.synLabel}>Synonyms</Text>
-                        <Text style={styles.synText}>{entry.syn.join(', ')}</Text>
+                        <Text
+                          style={[styles.synLabel, darkMode && styles.mutedDark]}>
+                          Synonyms
+                        </Text>
+                        <Text
+                          style={[
+                            styles.synText,
+                            darkMode && styles.accentTextDark,
+                          ]}>
+                          {entry.syn.join(', ')}
+                        </Text>
                       </View>
                     )}
                   </View>
@@ -110,7 +149,7 @@ function DictionarySheet({
               </View>
             )}
 
-            <Text style={styles.attribution}>
+            <Text style={[styles.attribution, darkMode && styles.mutedDark]}>
               Simple English Wiktionary · OEWN fallback
             </Text>
           </ScrollView>
@@ -132,6 +171,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 22,
     paddingBottom: 28,
   },
+  sheetDark: {backgroundColor: colors.darkBackground},
   grabber: {
     alignSelf: 'center',
     width: 44,
@@ -140,6 +180,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.border,
     marginBottom: 12,
   },
+  grabberDark: {backgroundColor: colors.darkBorder},
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -165,6 +206,13 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   closeButtonText: { fontSize: 16, color: colors.ink },
+  closeButtonDark: {
+    backgroundColor: colors.darkSurface,
+    borderColor: colors.darkBorder,
+  },
+  textDark: {color: colors.darkInk},
+  mutedDark: {color: colors.darkMuted},
+  accentTextDark: {color: colors.focus},
   body: { paddingBottom: 20 },
   empty: { fontSize: 15, color: colors.muted, paddingVertical: 12 },
   notFoundTitle: {
@@ -187,18 +235,19 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: colors.border,
   },
+  entryBlockDark: {borderBottomColor: colors.darkBorder},
   posRow: {
     flexDirection: 'row',
     alignItems: 'center',
     marginBottom: 8,
   },
   posBadge: {
-    backgroundColor: colors.accent,
+    backgroundColor: colors.focus,
     borderRadius: 5,
     paddingHorizontal: 8,
     paddingVertical: 3,
   },
-  posBadgeText: { color: '#FFFFFF', fontSize: 11, fontWeight: '800', letterSpacing: 0.5 },
+  posBadgeText: { color: colors.ink, fontSize: 11, fontWeight: '900', letterSpacing: 0.5 },
   meaningLabel: { marginLeft: 10, fontSize: 11, letterSpacing: 1.4, color: colors.muted, fontWeight: '700' },
   definition: {
     fontSize: 15,

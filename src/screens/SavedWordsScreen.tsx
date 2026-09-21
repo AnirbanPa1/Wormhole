@@ -79,7 +79,11 @@ function SavedWordsScreen({onNavigate}: SavedWordsScreenProps): React.JSX.Elemen
           accessibilityLabel="Clear saved words"
           disabled={words.length === 0}
           onPress={handleClear}
-          style={[styles.clearButton, words.length === 0 && styles.disabled]}>
+          style={[
+            styles.clearButton,
+            darkMode && styles.clearButtonDark,
+            words.length === 0 && styles.disabled,
+          ]}>
           <Text style={styles.clearButtonText}>Clear</Text>
         </Pressable>
       </View>

@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useState} from 'react';
-import {Alert, BackHandler, StatusBar, StyleSheet} from 'react-native';
+import {Alert, BackHandler, Modal, StatusBar, StyleSheet} from 'react-native';
 import {
   errorCodes,
   isErrorWithCode,
@@ -19,6 +19,7 @@ import type {LibraryDocument} from './src/types/library';
 import TtsSpikeScreen from './src/screens/TtsSpikeScreen';
 import ProfileScreen from './src/screens/ProfileScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
+import ImmersiveListeningScreen from './src/screens/ImmersiveListeningScreen';
 import type {MainTab} from './src/components/BottomNavigation';
 
 import { KokoroTtsProvider } from './src/features/tts/KokoroTtsProvider';
@@ -29,11 +30,25 @@ import {
 
 type AppView = 'library' | 'saved' | 'profile' | 'settings' | 'tts';
 
-function AppStatusBar({readerOpen}: {readerOpen: boolean}): React.JSX.Element {
+function AppStatusBar({
+  readerOpen,
+  immersiveOpen,
+}: {
+  readerOpen: boolean;
+  immersiveOpen: boolean;
+}): React.JSX.Element {
   const {darkMode} = useAppSettings();
   return (
     <StatusBar
-      barStyle={readerOpen || darkMode ? 'light-content' : 'dark-content'}
+      barStyle={
+        immersiveOpen
+          ? darkMode
+            ? 'light-content'
+            : 'dark-content'
+          : readerOpen || darkMode
+            ? 'light-content'
+            : 'dark-content'
+      }
     />
   );
 }
@@ -44,6 +59,7 @@ function App(): React.JSX.Element {
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
   const [view, setView] = useState<AppView>('library');
+  const [immersiveOpen, setImmersiveOpen] = useState(false);
 
   const navigate = useCallback((tab: MainTab) => {
     setView(tab);
@@ -172,13 +188,20 @@ function App(): React.JSX.Element {
       <SafeAreaProvider>
         <AppSettingsProvider>
           <KokoroTtsProvider>
-          <AppStatusBar readerOpen={selected !== null} />
+          <AppStatusBar
+            immersiveOpen={immersiveOpen}
+            readerOpen={selected !== null}
+          />
           {view === 'tts' ? (
             <TtsSpikeScreen />
           ) : selected ? (
             <ReaderScreen
               document={selected}
-              onBack={() => setSelected(null)}
+              onBack={() => {
+                setImmersiveOpen(false);
+                setSelected(null);
+              }}
+              onOpenImmersive={() => setImmersiveOpen(true)}
               onPageChange={page => saveProgress(selected.id, page)}
               onTextLayerReady={markTextLayerReady}
             />
@@ -197,10 +220,25 @@ function App(): React.JSX.Element {
               loading={loading}
               importing={importing}
               onImport={importPdf}
-              onOpen={setSelected}
+              onOpen={document => {
+                setImmersiveOpen(false);
+                setSelected(document);
+              }}
               onNavigate={navigate}
             />
           )}
+          <Modal
+            animationType="slide"
+            onRequestClose={() => setImmersiveOpen(false)}
+            statusBarTranslucent={false}
+            visible={immersiveOpen && selected !== null}>
+            {selected && (
+              <ImmersiveListeningScreen
+                document={selected}
+                onClose={() => setImmersiveOpen(false)}
+              />
+            )}
+          </Modal>
           </KokoroTtsProvider>
         </AppSettingsProvider>
       </SafeAreaProvider>

@@ -9,8 +9,8 @@ const styles = StyleSheet.create({
   iconButtonText: { fontSize: 38, lineHeight: 40, color: colors.readerInk, fontWeight: '300' },
   readerTitle: { flex: 1, textAlign: 'center', color: colors.readerInk, fontFamily: 'serif', fontSize: 16, paddingHorizontal: 8 },
   analyzeButton: { width: 44, height: 44, alignItems: 'center', justifyContent: 'center', borderRadius: 22, backgroundColor: colors.analyzeBg },
-  analyzeButtonActive: { backgroundColor: colors.accent },
-  analyzeButtonText: { fontSize: 15, lineHeight: 20, color: colors.readerInk, fontWeight: '800', letterSpacing: -1 },
+  analyzeButtonActive: { backgroundColor: colors.focus },
+  analyzeButtonText: { fontSize: 15, lineHeight: 20, color: colors.ink, fontWeight: '800', letterSpacing: -1 },
   captureGlyph: { width: 20, height: 20 },
   captureCorner: { position: 'absolute', width: 7, height: 7, borderColor: colors.readerInk },
   captureCornerTopLeft: { left: 0, top: 0, borderLeftWidth: 2, borderTopWidth: 2 },
@@ -31,7 +31,7 @@ const styles = StyleSheet.create({
   pageCounter: { width: 150, marginHorizontal: 18, alignItems: 'center' },
   pageCounterText: { color: colors.readerSub, fontSize: 13, fontWeight: '700', fontVariant: ['tabular-nums'] },
   readerProgressTrack: { height: 3, width: 150, backgroundColor: colors.trackDark, borderRadius: 2, overflow: 'hidden', marginTop: 8 },
-  readerProgressFill: { height: 3, backgroundColor: colors.accent, borderRadius: 2 },
+  readerProgressFill: { height: 3, backgroundColor: colors.focus, borderRadius: 2 },
   narrationButton: {
   width: 44,
   height: 44,
@@ -43,13 +43,29 @@ const styles = StyleSheet.create({
 },
 
 narrationButtonActive: {
-  backgroundColor: colors.accent,
+  backgroundColor: colors.focus,
 },
 
 narrationButtonText: {
-  color: colors.readerInk,
+  color: colors.ink,
   fontSize: 17,
   fontWeight: '800',
+},
+
+immersiveButton: {
+  width: 40,
+  height: 40,
+  marginRight: 8,
+  borderRadius: 20,
+  alignItems: 'center',
+  justifyContent: 'center',
+  backgroundColor: colors.focus,
+},
+
+immersiveButtonText: {
+  color: colors.ink,
+  fontSize: 19,
+  fontWeight: '900',
 },
 
 narrationProgress: {

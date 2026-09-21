@@ -1,4 +1,4 @@
-// PDF text-layer extraction powered by pdfjs-dist v3 (legacy CommonJS build).
+// PDF text-layer extraction powered by pdfjs-dist v3's CommonJS legacy build.
 //
 // HOW IT WORKS IN REACT NATIVE
 // ----------------------------
@@ -84,14 +84,57 @@ if (typeof globalThis !== 'undefined' && !(globalThis as any).DOMMatrix) {
   } as any;
 }
 
-// Use require() instead of import so the DOMMatrix polyfill above is evaluated
-// before pdfjs's module initialisation code runs.
+// Use require() instead of a static import so the DOMMatrix polyfill above is
+// evaluated before pdfjs's module initialisation code runs. PDF.js v4+ ships
+// only an ESM build with top-level await, which Hermes cannot execute.
 const PDFJSLib = require('pdfjs-dist/legacy/build/pdf.js');
 
 // @ts-expect-error - pdfjs types reference `window`; the runtime value is what matters.
 globalThis.pdfjsWorker = require('pdfjs-dist/legacy/build/pdf.worker.js');
 
 const pdfjs = PDFJSLib as any;
+
+const MAX_PDF_BYTES = 100 * 1024 * 1024;
+const MAX_PDF_PAGES = 2_000;
+const MAX_TEXT_ITEMS_PER_PAGE = 100_000;
+
+function secureDocumentOptions(data: Uint8Array) {
+  return {
+    data,
+    // PDF.js v3 can compile PDF-provided font expressions with Function().
+    // Keep evaluation disabled: Wormhole only needs text extraction, and this
+    // prevents untrusted PDFs from reaching that vulnerable code path.
+    isEvalSupported: false,
+    stopAtErrors: true,
+  };
+}
+
+function assertSafePageCount(pageCount: number): void {
+  if (!Number.isInteger(pageCount) || pageCount < 1) {
+    throw new Error('The selected PDF has an invalid page count.');
+  }
+  if (pageCount > MAX_PDF_PAGES) {
+    throw new Error(
+      `This PDF has ${pageCount} pages. Wormhole supports up to ${MAX_PDF_PAGES.toLocaleString()} pages per file.`,
+    );
+  }
+}
+
+function assertPdfSignature(bytes: Uint8Array): void {
+  const headerLimit = Math.min(bytes.length - 4, 1_024);
+  for (let index = 0; index < headerLimit; index += 1) {
+    if (
+      bytes[index] === 0x25 &&
+      bytes[index + 1] === 0x50 &&
+      bytes[index + 2] === 0x44 &&
+      bytes[index + 3] === 0x46 &&
+      bytes[index + 4] === 0x2d
+    ) {
+      return;
+    }
+  }
+  throw new Error('The selected file does not contain a valid PDF header.');
+}
 
 export interface ExtractionProgress {
   pageIndex: number;
@@ -108,9 +151,18 @@ export type ProgressCallback = (progress: ExtractionProgress) => void;
 async function readFileBytes(localUri: string): Promise<Uint8Array> {
   const clean = localUri.replace(/^file:/, '').replace(/^\/\//, '');
   const path = clean.startsWith('/') ? clean : `/${clean}`;
+  const file = await ReactNativeBlobUtil.fs.stat(path);
+  const fileSize = Number(file.size);
+  if (!Number.isFinite(fileSize) || fileSize < 1) {
+    throw new Error('The selected PDF is empty or has an invalid size.');
+  }
+  if (fileSize > MAX_PDF_BYTES) {
+    throw new Error('This PDF is larger than Wormhole\'s 100 MB safety limit.');
+  }
   const bytes = await ReactNativeBlobUtil.fs.readFile(path, 'ascii');
 
   if (bytes instanceof Uint8Array) {
+    assertPdfSignature(bytes);
     return bytes;
   }
 
@@ -124,7 +176,9 @@ async function readFileBytes(localUri: string): Promise<Uint8Array> {
   ) {
     // Android sends its native signed bytes as -128..127. Uint8Array.from()
     // wraps those values back to their original 0..255 binary representation.
-    return Uint8Array.from(bytes);
+    const typedBytes = Uint8Array.from(bytes);
+    assertPdfSignature(typedBytes);
+    return typedBytes;
   }
 
   throw new Error('PDF reader returned an unsupported file-byte format.');
@@ -213,6 +267,10 @@ async function extractPage(
   const textContent = await page.getTextContent();
   const words: WordBox[] = [];
 
+  if ((textContent.items?.length ?? 0) > MAX_TEXT_ITEMS_PER_PAGE) {
+    throw new Error('This PDF page contains too many text elements to process safely.');
+  }
+
   for (const item of textContent.items ?? []) {
     if (!item || typeof item.str !== 'string' || !item.str.trim()) {
       continue;
@@ -252,13 +310,14 @@ export async function extractTextLayer(
   onProgress?: ProgressCallback,
 ): Promise<TextLayer> {
   const data = await readFileBytes(localUri);
-  const loadingTask = pdfjs.getDocument({ data });
+  const loadingTask = pdfjs.getDocument(secureDocumentOptions(data));
   const doc = await loadingTask.promise;
 
   const pages: TextLayerPage[] = [];
 
   try {
     const pageCount = doc.numPages;
+    assertSafePageCount(pageCount);
     for (let pageIndex = 1; pageIndex <= pageCount; pageIndex++) {
       const page = await doc.getPage(pageIndex);
       const viewport = page.getViewport({ scale: 1 });
@@ -299,10 +358,11 @@ export async function extractTextLayerPage(
   pageIndex: number,
 ): Promise<TextLayer> {
   const data = await readFileBytes(localUri);
-  const loadingTask = pdfjs.getDocument({data});
+  const loadingTask = pdfjs.getDocument(secureDocumentOptions(data));
   const doc = await loadingTask.promise;
 
   try {
+    assertSafePageCount(doc.numPages);
     if (pageIndex < 0 || pageIndex >= doc.numPages) {
       throw new Error('The selected PDF page is out of range.');
     }

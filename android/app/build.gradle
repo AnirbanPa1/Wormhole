@@ -55,7 +55,40 @@ react {
 /**
  * Set this to true to Run Proguard on Release builds to minify the Java bytecode.
  */
-def enableProguardInReleaseBuilds = false
+def enableProguardInReleaseBuilds = true
+
+def releaseSigningProperties = new Properties()
+def releaseSigningPropertiesFile = rootProject.file("keystore.properties")
+if (releaseSigningPropertiesFile.exists()) {
+    releaseSigningPropertiesFile.withInputStream { stream ->
+        releaseSigningProperties.load(stream)
+    }
+}
+
+def releaseStoreFile = System.getenv("WORMHOLE_RELEASE_STORE_FILE") ?:
+    releaseSigningProperties.getProperty("storeFile")
+def releaseStorePassword = System.getenv("WORMHOLE_RELEASE_STORE_PASSWORD") ?:
+    releaseSigningProperties.getProperty("storePassword")
+def releaseKeyAlias = System.getenv("WORMHOLE_RELEASE_KEY_ALIAS") ?:
+    releaseSigningProperties.getProperty("keyAlias")
+def releaseKeyPassword = System.getenv("WORMHOLE_RELEASE_KEY_PASSWORD") ?:
+    releaseSigningProperties.getProperty("keyPassword")
+def hasReleaseSigning = [
+    releaseStoreFile,
+    releaseStorePassword,
+    releaseKeyAlias,
+    releaseKeyPassword,
+].every { value -> value != null && !value.toString().trim().isEmpty() }
+
+def releaseTaskRequested = gradle.startParameter.taskNames.any { taskName ->
+    taskName.toLowerCase(java.util.Locale.ROOT).contains("release")
+}
+if (releaseTaskRequested && !hasReleaseSigning) {
+    throw new GradleException(
+        "Release signing is not configured. Copy android/keystore.properties.example " +
+        "to android/keystore.properties or set the WORMHOLE_RELEASE_* environment variables."
+    )
+}
 
 /**
  * The preferred build flavor of JavaScriptCore (JSC)
@@ -90,15 +123,27 @@ android {
             keyAlias 'androiddebugkey'
             keyPassword 'android'
         }
+        if (hasReleaseSigning) {
+            release {
+                storeFile rootProject.file(releaseStoreFile)
+                storePassword releaseStorePassword
+                keyAlias releaseKeyAlias
+                keyPassword releaseKeyPassword
+            }
+        }
     }
     buildTypes {
         debug {
             signingConfig signingConfigs.debug
+
+            // Allows debug and production builds to coexist.
+            applicationIdSuffix ".debug"
+            versionNameSuffix "-debug"
         }
         release {
-            // Caution! In production, you need to generate your own keystore file.
-            // see https://reactnative.dev/docs/signed-apk-android.
-            signingConfig signingConfigs.debug
+            if (hasReleaseSigning) {
+                signingConfig signingConfigs.release
+            }
             minifyEnabled enableProguardInReleaseBuilds
             proguardFiles getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro"
         }

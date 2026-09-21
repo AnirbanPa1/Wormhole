@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import BottomNavigation, {type MainTab} from '../components/BottomNavigation';
+import {colors} from '../constants/theme';
 import {
   KOKORO_VOICES,
   TTS_SPEEDS,
@@ -36,9 +37,11 @@ function SettingsScreen({onNavigate}: SettingsScreenProps): React.JSX.Element {
     voiceId,
     speed,
     darkMode,
+    immersiveMode,
     setVoiceId,
     setSpeed,
     setDarkMode,
+    setImmersiveMode,
   } = useAppSettings();
   const {status: ttsStatus, initialize} = useKokoroTts();
   const [modelStatus, setModelStatus] = useState<KokoroModelStatus | null>(null);
@@ -101,11 +104,21 @@ function SettingsScreen({onNavigate}: SettingsScreenProps): React.JSX.Element {
           <Pressable
             disabled={modelBusy || ttsStatus === 'initializing'}
             onPress={handleModelAction}
-            style={[styles.primaryButton, (modelBusy || ttsStatus === 'initializing') && styles.disabled]}>
+            style={[
+              styles.primaryButton,
+              darkMode && styles.primaryButtonDark,
+              (modelBusy || ttsStatus === 'initializing') && styles.disabled,
+            ]}>
             {modelBusy || ttsStatus === 'initializing' ? (
-              <ActivityIndicator color="#FFFFFF" />
+              <ActivityIndicator
+                color={darkMode ? colors.ink : colors.focus}
+              />
             ) : (
-              <Text style={styles.primaryButtonText}>
+              <Text
+                style={[
+                  styles.primaryButtonText,
+                  darkMode && styles.primaryButtonTextDark,
+                ]}>
                 {modelStatus?.installed ? 'Load model' : 'Download model'}
               </Text>
             )}
@@ -175,18 +188,38 @@ function SettingsScreen({onNavigate}: SettingsScreenProps): React.JSX.Element {
           </View>
         </View>
 
+        <Text style={[styles.sectionLabel, darkMode && styles.mutedDark]}>PLAYBACK EXPERIENCE</Text>
+        <View style={[styles.card, styles.toggleRow, darkMode && styles.cardDark]}>
+          <View style={styles.flex}>
+            <Text style={[styles.cardTitle, darkMode && styles.textDark]}>
+              Immersive listening mode
+            </Text>
+            <Text style={[styles.cardCopy, darkMode && styles.mutedDark]}>
+              Open the focused audio player when narration starts. You can
+              still expand it manually from the reader.
+            </Text>
+          </View>
+          <Switch
+            accessibilityLabel="Immersive listening mode"
+            onValueChange={setImmersiveMode}
+            thumbColor={colors.ink}
+            trackColor={{false: '#B9B0A5', true: colors.focus}}
+            value={immersiveMode}
+          />
+        </View>
+
         <Text style={[styles.sectionLabel, darkMode && styles.mutedDark]}>APPEARANCE</Text>
         <View style={[styles.card, styles.toggleRow, darkMode && styles.cardDark]}>
           <View style={styles.flex}>
             <Text style={[styles.cardTitle, darkMode && styles.textDark]}>Dark mode</Text>
             <Text style={[styles.cardCopy, darkMode && styles.mutedDark]}>
-              Use a darker library and settings theme.
+              Use Wormhole's warm night palette throughout the app.
             </Text>
           </View>
           <Switch
             onValueChange={setDarkMode}
-            thumbColor="#FFF9EF"
-            trackColor={{false: '#B9B0A5', true: '#D76D45'}}
+            thumbColor={colors.ink}
+            trackColor={{false: '#B9B0A5', true: colors.focus}}
             value={darkMode}
           />
         </View>

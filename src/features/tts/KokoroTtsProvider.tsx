@@ -28,6 +28,8 @@ type TtsState = {
     totalChunks: number;
     currentChunkStartWordIndex: number;
     currentChunkEndWordIndex: number;
+    currentChunkText: string;
+    narrationText: string;
     error: string | null;
 };
 
@@ -36,6 +38,8 @@ type KokoroTtsContextValue = TtsState & {
     read(text: string, voiceId?: number, speed?: number): Promise<void>;
     pause(): Promise<void>;
     resume(): Promise<void>;
+    previousChunk(): Promise<void>;
+    nextChunk(): Promise<void>;
     stop(): void;
 };
 
@@ -45,6 +49,8 @@ const initialState: TtsState = {
     totalChunks: 0,
     currentChunkStartWordIndex: -1,
     currentChunkEndWordIndex: -1,
+    currentChunkText: '',
+    narrationText: '',
     error: null,
 };
 
@@ -67,7 +73,20 @@ export function KokoroTtsProvider({
 
     useEffect(() => {
         const queue = new TtsPlaybackQueue({
-            onChunkChange(index, total, startWordIndex, endWordIndex) {
+            onPreparing(index, total, text) {
+                setState(current => ({
+                    ...current,
+                    status: 'preparing',
+                    currentChunk: index + 1,
+                    totalChunks: total,
+                    currentChunkStartWordIndex: -1,
+                    currentChunkEndWordIndex: -1,
+                    currentChunkText: text,
+                    error: null,
+                }));
+            },
+
+            onChunkChange(index, total, startWordIndex, endWordIndex, text) {
                 setState(current => ({
                     ...current,
                     status: 'playing',
@@ -75,6 +94,7 @@ export function KokoroTtsProvider({
                     totalChunks: total,
                     currentChunkStartWordIndex: startWordIndex,
                     currentChunkEndWordIndex: endWordIndex,
+                    currentChunkText: text,
                     error: null,
                 }));
             },
@@ -87,6 +107,8 @@ export function KokoroTtsProvider({
                     totalChunks: 0,
                     currentChunkStartWordIndex: -1,
                     currentChunkEndWordIndex: -1,
+                    currentChunkText: '',
+                    narrationText: '',
                 }))
             },
 
@@ -97,6 +119,8 @@ export function KokoroTtsProvider({
                     totalChunks: 0,
                     currentChunkStartWordIndex: -1,
                     currentChunkEndWordIndex: -1,
+                    currentChunkText: '',
+                    narrationText: '',
                     error: error.message,
                 });
             },
@@ -145,6 +169,8 @@ export function KokoroTtsProvider({
                     totalChunks: 0,
                     currentChunkStartWordIndex: -1,
                     currentChunkEndWordIndex: -1,
+                    currentChunkText: '',
+                    narrationText: '',
                     error: normalized.message,
                 });
 
@@ -161,6 +187,12 @@ export function KokoroTtsProvider({
             voiceId = 1,
             speed = 1,
         ): Promise<void> => {
+            setState(current => ({
+                ...current,
+                narrationText: text,
+                currentChunkText: '',
+                error: null,
+            }));
             await initialize();
 
             const queue = queueRef.current;
@@ -186,6 +218,8 @@ export function KokoroTtsProvider({
                 totalChunks: 0,
                 currentChunkStartWordIndex: -1,
                 currentChunkEndWordIndex: -1,
+                currentChunkText: '',
+                narrationText: '',
                 error: normalized.message,
                 });
 
@@ -196,7 +230,11 @@ export function KokoroTtsProvider({
     );
 
     const pause = useCallback(async (): Promise<void> => {
-        await queueRef.current?.pause();
+        const position = await queueRef.current?.pause();
+
+        if (position == null) {
+            return;
+        }
 
         setState(current => ({
             ...current,
@@ -205,12 +243,24 @@ export function KokoroTtsProvider({
     }, []);
 
     const resume = useCallback(async (): Promise<void> => {
-        await queueRef.current?.resume();
+        const position = await queueRef.current?.resume();
+
+        if (position == null) {
+            return;
+        }
 
         setState(current => ({
             ...current,
             status: 'playing',
         }));
+    }, []);
+
+    const previousChunk = useCallback(async (): Promise<void> => {
+        await queueRef.current?.skipBy(-1);
+    }, []);
+
+    const nextChunk = useCallback(async (): Promise<void> => {
+        await queueRef.current?.skipBy(1);
     }, []);
 
     const stop = useCallback((): void => {
@@ -223,6 +273,8 @@ export function KokoroTtsProvider({
             totalChunks: 0,
             currentChunkStartWordIndex: -1,
             currentChunkEndWordIndex: -1,
+            currentChunkText: '',
+            narrationText: '',
             error: null,
         }));
     }, []);
@@ -234,9 +286,11 @@ export function KokoroTtsProvider({
             read,
             pause,
             resume,
+            previousChunk,
+            nextChunk,
             stop,
         }),
-        [initialize, pause, read, resume, state, stop],
+        [initialize, nextChunk, pause, previousChunk, read, resume, state, stop],
     );
 
     return (
