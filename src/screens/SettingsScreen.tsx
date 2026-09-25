@@ -19,6 +19,9 @@ import {
 import {
   downloadKokoroModel,
   getKokoroModelStatus,
+  requestKokoroDownloadNotificationPermission,
+  subscribeToKokoroModelDownloadProgress,
+  type KokoroModelDownloadProgress,
   type KokoroModelStatus,
 } from '../features/tts/kokoro-client';
 import {useKokoroTts} from '../features/tts/KokoroTtsProvider';
@@ -46,6 +49,8 @@ function SettingsScreen({onNavigate}: SettingsScreenProps): React.JSX.Element {
   const {status: ttsStatus, initialize} = useKokoroTts();
   const [modelStatus, setModelStatus] = useState<KokoroModelStatus | null>(null);
   const [modelBusy, setModelBusy] = useState(false);
+  const [downloadProgress, setDownloadProgress] =
+    useState<KokoroModelDownloadProgress | null>(null);
 
   const refreshModelStatus = useCallback(() => {
     getKokoroModelStatus()
@@ -55,9 +60,32 @@ function SettingsScreen({onNavigate}: SettingsScreenProps): React.JSX.Element {
 
   useEffect(refreshModelStatus, [refreshModelStatus]);
 
+  useEffect(
+    () =>
+      subscribeToKokoroModelDownloadProgress(progress => {
+        setDownloadProgress(progress);
+        setModelBusy(
+          progress.phase !== 'complete' && progress.phase !== 'failed',
+        );
+        if (progress.phase === 'complete') {
+          refreshModelStatus();
+        }
+      }),
+    [refreshModelStatus],
+  );
+
   const handleModelAction = useCallback(async () => {
     setModelBusy(true);
+    setDownloadProgress(null);
     try {
+      if (!modelStatus?.installed) {
+        const notificationsAllowed =
+          await requestKokoroDownloadNotificationPermission();
+        if (!notificationsAllowed) {
+          return;
+        }
+      }
+
       const nextStatus = modelStatus?.installed
         ? modelStatus
         : await downloadKokoroModel();
@@ -72,6 +100,7 @@ function SettingsScreen({onNavigate}: SettingsScreenProps): React.JSX.Element {
       refreshModelStatus();
     } finally {
       setModelBusy(false);
+      setDownloadProgress(null);
     }
   }, [initialize, modelStatus, refreshModelStatus]);
 
@@ -110,9 +139,26 @@ function SettingsScreen({onNavigate}: SettingsScreenProps): React.JSX.Element {
               (modelBusy || ttsStatus === 'initializing') && styles.disabled,
             ]}>
             {modelBusy || ttsStatus === 'initializing' ? (
-              <ActivityIndicator
-                color={darkMode ? colors.ink : colors.focus}
-              />
+              <View style={styles.busyButtonContent}>
+                <ActivityIndicator
+                  color={darkMode ? colors.ink : colors.focus}
+                />
+                <Text
+                  style={[
+                    styles.primaryButtonText,
+                    darkMode && styles.primaryButtonTextDark,
+                  ]}>
+                  {downloadProgress?.phase === 'downloading'
+                    ? downloadProgress.progress === null
+                      ? 'Downloading model'
+                      : `Downloading ${Math.round(downloadProgress.progress * 100)}%`
+                    : downloadProgress?.phase === 'verifying'
+                      ? 'Verifying download'
+                      : downloadProgress?.phase === 'installing'
+                        ? 'Installing model'
+                        : 'Loading model'}
+                </Text>
+              </View>
             ) : (
               <Text
                 style={[
@@ -123,9 +169,39 @@ function SettingsScreen({onNavigate}: SettingsScreenProps): React.JSX.Element {
               </Text>
             )}
           </Pressable>
-          {!modelStatus?.installed && (
+          {modelBusy &&
+            downloadProgress?.phase === 'downloading' &&
+            downloadProgress.progress !== null && (
+            <View
+              style={[
+                styles.modelProgressTrack,
+                darkMode && styles.modelProgressTrackDark,
+              ]}>
+              <View
+                style={[
+                  styles.modelProgressFill,
+                  {
+                    width: `${Math.round(
+                      downloadProgress.progress * 100,
+                    )}%`,
+                  },
+                ]}
+              />
+            </View>
+          )}
+          {modelBusy &&
+            downloadProgress?.phase === 'downloading' &&
+            downloadProgress.totalBytes > 0 && (
+              <Text
+                style={[styles.downloadNote, darkMode && styles.mutedDark]}>
+                {formatMegabytes(downloadProgress.completedBytes)} of{' '}
+                {formatMegabytes(downloadProgress.totalBytes)}
+              </Text>
+            )}
+          {!modelStatus?.installed && !modelBusy && (
             <Text style={[styles.downloadNote, darkMode && styles.mutedDark]}>
-              Keep Wormhole open during the large model download.
+              Uses internet and up to about 400 MB of private device storage.
+              Keep Wormhole open during the download.
             </Text>
           )}
         </View>

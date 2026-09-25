@@ -5,9 +5,9 @@ import BookA from 'lucide-react-native/icons/book-a';
 import Bolt from 'lucide-react-native/icons/bolt';
 import CircleUserRound from 'lucide-react-native/icons/circle-user-round';
 import Library from 'lucide-react-native/icons/library';
-import {useSafeAreaInsets} from 'react-native-safe-area-context';
 import {colors} from '../constants/theme';
 import {useAppSettings} from '../features/settings/AppSettingsProvider';
+import FloatingNavigationContainer from './FloatingNavigationContainer';
 
 export type MainTab = 'library' | 'saved' | 'settings' | 'profile';
 
@@ -28,16 +28,9 @@ function BottomNavigation({
   onNavigate,
 }: BottomNavigationProps): React.JSX.Element {
   const {darkMode} = useAppSettings();
-  const insets = useSafeAreaInsets();
-  const bottomOffset = Math.max(8, insets.bottom + 8);
 
   return (
-    <View
-      style={[
-        styles.container,
-        {bottom: bottomOffset},
-        darkMode && styles.containerDark,
-      ]}>
+    <FloatingNavigationContainer>
       {tabs.map(tab => {
         const selected = tab.id === active;
         const Icon = tab.icon;
@@ -69,36 +62,11 @@ function BottomNavigation({
           </Pressable>
         );
       })}
-    </View>
+    </FloatingNavigationContainer>
   );
 }
 
 const styles = StyleSheet.create({
-  container: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    zIndex: 20,
-    minHeight: 66,
-    marginHorizontal: 14,
-    marginBottom: 8,
-    paddingHorizontal: 8,
-    paddingVertical: 6,
-    flexDirection: 'row',
-    backgroundColor: colors.paper,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: 22,
-    shadowColor: colors.shadow,
-    shadowOpacity: 0.1,
-    shadowRadius: 16,
-    shadowOffset: {width: 0, height: 8},
-    elevation: 6,
-  },
-  containerDark: {
-    backgroundColor: colors.darkSurface,
-    borderColor: colors.darkBorder,
-  },
   tab: {
     flex: 1,
     alignItems: 'center',

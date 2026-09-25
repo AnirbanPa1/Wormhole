@@ -1,4 +1,10 @@
-import React, {useCallback, useEffect, useMemo, useRef, useState} from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -13,25 +19,42 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import {ZoomPdfView} from 'react-native-pdf-light/Zoom';
-import {PdfUtil, type PageDim} from 'react-native-pdf-light';
-import {SafeAreaView} from 'react-native-safe-area-context';
+import {
+  PdfView,
+  type LoadCompleteEvent,
+  type PdfViewProps,
+} from 'react-native-pdf-light';
+import { ZoomPdfView } from 'react-native-pdf-light/Zoom';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
+import ChevronLeft from 'lucide-react-native/icons/chevron-left';
+import ChevronRight from 'lucide-react-native/icons/chevron-right';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import DictionarySheet from '../components/DictionarySheet';
+import FloatingNavigationContainer, {
+  useFloatingNavigationLayout,
+} from '../components/FloatingNavigationContainer';
 import TextLayerOverlay from '../components/TextLayerOverlay';
 import {
   initDictionary,
   lookup,
   type DictionaryResult,
 } from '../services/dictionary.service';
-import {extractTextLayerPage} from '../services/pdf-text-extractor.service';
-import {loadTextLayer, saveTextLayer} from '../storage/text-layers';
-import {addCachedWord} from '../storage/word-cache';
-import type {LibraryDocument} from '../types/library';
-import type {TextLayer, TextLayerPage, WordBox} from '../types/text-layer';
+import { extractTextLayerPage } from '../services/pdf-text-extractor.service';
+import { loadTextLayer, saveTextLayer } from '../storage/text-layers';
+import { addCachedWord } from '../storage/word-cache';
+import type { LibraryDocument } from '../types/library';
+import type { TextLayer, TextLayerPage, WordBox } from '../types/text-layer';
 import styles from './ReaderScreen.styles';
 
 import { useKokoroTts } from '../features/tts/KokoroTtsProvider';
-import {useAppSettings} from '../features/settings/AppSettingsProvider';
+import {
+  downloadKokoroModel,
+  isKokoroModelMissingError,
+  requestKokoroDownloadNotificationPermission,
+  requestKokoroNotificationPermission,
+} from '../features/tts/kokoro-client';
+import { useAppSettings } from '../features/settings/AppSettingsProvider';
+import { X } from 'lucide-react-native';
 
 type ReaderScreenProps = {
   document: LibraryDocument;
@@ -41,22 +64,87 @@ type ReaderScreenProps = {
   onTextLayerReady: (id: string) => void;
 };
 
-const FALLBACK_PAGE_SIZE: PageDim = {width: 612, height: 792};
+const PAGE_SIDE_INSET = 10;
+const PAGE_VERTICAL_INSET = 10;
+const FALLBACK_PAGE_ASPECT = 612 / 792;
 
-function fitPageInFrame(
-  pageSize: PageDim,
-  maxWidth: number,
-  maxHeight: number,
-): {width: number; height: number} {
-  if (pageSize.width <= 0 || pageSize.height <= 0) {
-    return fitPageInFrame(FALLBACK_PAGE_SIZE, maxWidth, maxHeight);
-  }
+type PdfOverlayState = {
+  page: TextLayerPage | null;
+  onWordPress: (word: WordBox) => void;
+  highlightedWordRange: { start: number; end: number } | null;
+  scanning: boolean;
+  selectedWord: WordBox | null;
+  visible: boolean;
+};
 
-  const scale = Math.min(maxWidth / pageSize.width, maxHeight / pageSize.height);
-  return {
-    width: Math.max(1, pageSize.width * scale),
-    height: Math.max(1, pageSize.height * scale),
-  };
+const PdfOverlayContext = React.createContext<PdfOverlayState | null>(null);
+
+function PdfPageWithOverlay(props: PdfViewProps): React.JSX.Element {
+  const overlay = React.useContext(PdfOverlayContext);
+  const onLayout = props.onLayout;
+  const onLoadComplete = props.onLoadComplete;
+  const [pageAspect, setPageAspect] = useState(
+    overlay?.page && overlay.page.pageHeight > 0
+      ? overlay.page.pageWidth / overlay.page.pageHeight
+      : FALLBACK_PAGE_ASPECT,
+  );
+  const [frameSize, setFrameSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    if (overlay?.page && overlay.page.pageHeight > 0) {
+      setPageAspect(overlay.page.pageWidth / overlay.page.pageHeight);
+    }
+  }, [overlay?.page]);
+
+  const handleLoadComplete = useCallback(
+    (event: LoadCompleteEvent) => {
+      if (event.width > 0 && event.height > 0) {
+        setPageAspect(event.width / event.height);
+      }
+      onLoadComplete?.(event);
+    },
+    [onLoadComplete],
+  );
+
+  const handleLayout = useCallback(
+    (event: LayoutChangeEvent) => {
+      const { width, height } = event.nativeEvent.layout;
+      setFrameSize(current =>
+        Math.abs(current.width - width) < 1 &&
+        Math.abs(current.height - height) < 1
+          ? current
+          : { width, height },
+      );
+      onLayout?.(event);
+    },
+    [onLayout],
+  );
+
+  return (
+    <View
+      onLayout={handleLayout}
+      style={[styles.pdfRenderedPage, { aspectRatio: pageAspect }]}
+    >
+      <PdfView
+        {...props}
+        onLayout={undefined}
+        onLoadComplete={handleLoadComplete}
+        style={styles.pdfPage}
+      />
+      {overlay && frameSize.width > 0 && frameSize.height > 0 && (
+        <TextLayerOverlay
+          frameHeight={frameSize.height}
+          frameWidth={frameSize.width}
+          highlightedWordRange={overlay.highlightedWordRange}
+          onWordPress={overlay.onWordPress}
+          page={overlay.page}
+          scanning={overlay.scanning}
+          selectedWord={overlay.selectedWord}
+          visible={overlay.visible}
+        />
+      )}
+    </View>
+  );
 }
 
 function ReaderScreen({
@@ -66,7 +154,20 @@ function ReaderScreen({
   onPageChange,
   onTextLayerReady,
 }: ReaderScreenProps): React.JSX.Element {
-  const {width: windowWidth, height: windowHeight} = useWindowDimensions();
+  const { width: windowWidth, height: windowHeight } = useWindowDimensions();
+  const isLandscape = windowWidth > windowHeight;
+  const { obstructionHeight: navigationObstructionHeight } =
+    useFloatingNavigationLayout();
+  const pdfViewInsets = useMemo(
+    () => ({
+      top: PAGE_VERTICAL_INSET,
+      right: PAGE_SIDE_INSET,
+      bottom:
+        PAGE_VERTICAL_INSET + (isLandscape ? navigationObstructionHeight : 0),
+      left: PAGE_SIDE_INSET,
+    }),
+    [isLandscape, navigationObstructionHeight],
+  );
   const [page, setPage] = useState(
     Math.min(document.currentPage, document.pageCount - 1),
   );
@@ -75,30 +176,25 @@ function ReaderScreen({
     height: Math.max(180, windowHeight - 160),
   });
   const [zoomedPage, setZoomedPage] = useState<number | null>(null);
-  const [controlsVisible, setControlsVisible] = useState(true);
+  const [modelInstalling, setModelInstalling] = useState(false);
   const pagerRef = useRef<FlatList<number>>(null);
   const scrollX = useRef(new Animated.Value(page * stageSize.width)).current;
   const previousPagerWidth = useRef(stageSize.width);
   const pages = useMemo(
-    () => Array.from({length: document.pageCount}, (_, index) => index),
+    () => Array.from({ length: document.pageCount }, (_, index) => index),
     [document.pageCount],
   );
   const pagerWidth = Math.max(1, stageSize.width);
-  const maxPageWidth = Math.max(1, Math.min(pagerWidth - 28, 720));
-  const maxPageHeight = Math.max(180, stageSize.height - 12);
-  const [pageSizes, setPageSizes] = useState<PageDim[]>([]);
-
   const [layer, setLayer] = useState<TextLayer | null>(null);
   const [extracting, setExtracting] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [sheetVisible, setSheetVisible] = useState(false);
   const [activeWord, setActiveWord] = useState<WordBox | null>(null);
-  const [dictionaryResult, setDictionaryResult] = useState<DictionaryResult | null>(null);
+  const [dictionaryResult, setDictionaryResult] =
+    useState<DictionaryResult | null>(null);
 
   const {
     status: ttsStatus,
-    currentChunk,
-    totalChunks,
     currentChunkStartWordIndex,
     currentChunkEndWordIndex,
     read,
@@ -106,25 +202,7 @@ function ReaderScreen({
     resume,
     stop,
   } = useKokoroTts();
-  const {voiceId, speed, immersiveMode} = useAppSettings();
-
-  useEffect(() => {
-    let cancelled = false;
-    PdfUtil.getPageSizes(document.localUri)
-      .then(sizes => {
-        if (!cancelled) {
-          setPageSizes(sizes);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setPageSizes([]);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [document.localUri]);
+  const { voiceId, speed, immersiveMode, darkMode } = useAppSettings();
 
   const currentPageLayer = useMemo(
     () => layer?.pages.find(item => item.pageIndex === page) ?? null,
@@ -142,53 +220,55 @@ function ReaderScreen({
       .join(' ');
   }, [currentPageLayer]);
 
-  const captureCurrentPage = useCallback(async (): Promise<TextLayerPage | null> => {
-    const cachedPage = layer?.pages.find(item => item.pageIndex === page);
-    if (cachedPage) {
-      return cachedPage.hasText ? cachedPage : null;
-    }
+  const captureCurrentPage =
+    useCallback(async (): Promise<TextLayerPage | null> => {
+      const cachedPage = layer?.pages.find(item => item.pageIndex === page);
+      if (cachedPage) {
+        return cachedPage.hasText ? cachedPage : null;
+      }
 
-    if (extracting) {
-      return null;
-    }
-
-    setExtracting(true);
-    try {
-      const extracted = await extractTextLayerPage(
-        document.localUri,
-        document.id,
-        page,
-      );
-      const capturedPage = extracted.pages[0];
-      if (!capturedPage?.hasText) {
+      if (extracting) {
         return null;
       }
 
-      const merged: TextLayer = {
-        documentId: document.id,
-        extractedAt: extracted.extractedAt,
-        pages: [
-          ...(layer?.pages.filter(item => item.pageIndex !== page) ?? []),
-          capturedPage,
-        ].sort((a, b) => a.pageIndex - b.pageIndex),
-      };
-      await saveTextLayer(merged);
-      setLayer(merged);
-      onTextLayerReady(document.id);
-      return capturedPage;
-    } finally {
-      setExtracting(false);
-    }
-  }, [
-    document.id,
-    document.localUri,
-    extracting,
-    layer,
-    onTextLayerReady,
-    page,
-  ]);
+      setExtracting(true);
+      try {
+        const extracted = await extractTextLayerPage(
+          document.localUri,
+          document.id,
+          page,
+        );
+        const capturedPage = extracted.pages[0];
+        if (!capturedPage?.hasText) {
+          return null;
+        }
+
+        const merged: TextLayer = {
+          documentId: document.id,
+          extractedAt: extracted.extractedAt,
+          pages: [
+            ...(layer?.pages.filter(item => item.pageIndex !== page) ?? []),
+            capturedPage,
+          ].sort((a, b) => a.pageIndex - b.pageIndex),
+        };
+        await saveTextLayer(merged);
+        setLayer(merged);
+        onTextLayerReady(document.id);
+        return capturedPage;
+      } finally {
+        setExtracting(false);
+      }
+    }, [
+      document.id,
+      document.localUri,
+      extracting,
+      layer,
+      onTextLayerReady,
+      page,
+    ]);
 
   const handleNarration = useCallback(async () => {
+    let textToRead = '';
     try {
       if (ttsStatus === 'playing') {
         await pause();
@@ -203,7 +283,7 @@ function ReaderScreen({
         return;
       }
 
-      let textToRead = currentPageText;
+      textToRead = currentPageText;
       if (!textToRead) {
         const capturedPage = await captureCurrentPage();
         textToRead =
@@ -221,21 +301,48 @@ function ReaderScreen({
         return;
       }
 
+      await requestKokoroNotificationPermission();
+      await read(textToRead, voiceId, speed, document.title);
       if (immersiveMode) {
         onOpenImmersive();
       }
-      await read(textToRead, voiceId, speed);
     } catch (error) {
+      if (isKokoroModelMissingError(error)) {
+        const notificationsAllowed =
+          await requestKokoroDownloadNotificationPermission();
+        if (!notificationsAllowed) {
+          return;
+        }
+
+        setModelInstalling(true);
+        try {
+          await downloadKokoroModel();
+          await read(textToRead, voiceId, speed, document.title);
+          if (immersiveMode) {
+            onOpenImmersive();
+          }
+        } catch (downloadError) {
+          Alert.alert(
+            'Model download failed',
+            downloadError instanceof Error
+              ? downloadError.message
+              : 'Check your connection and available storage, then try again.',
+          );
+        } finally {
+          setModelInstalling(false);
+        }
+        return;
+      }
+
       Alert.alert(
         'Narration unavailable',
-        error instanceof Error
-          ? error.message
-          : 'Please try again.',
+        error instanceof Error ? error.message : 'Please try again.',
       );
     }
   }, [
     captureCurrentPage,
     currentPageText,
+    document.title,
     pause,
     read,
     resume,
@@ -302,11 +409,12 @@ function ReaderScreen({
   }, [document.id]);
 
   const handleStageLayout = useCallback((event: LayoutChangeEvent) => {
-    const {width, height} = event.nativeEvent.layout;
+    const { width, height } = event.nativeEvent.layout;
     setStageSize(current =>
-      Math.abs(current.width - width) < 1 && Math.abs(current.height - height) < 1
+      Math.abs(current.width - width) < 1 &&
+      Math.abs(current.height - height) < 1
         ? current
-        : {width, height},
+        : { width, height },
     );
   }, []);
 
@@ -337,7 +445,6 @@ function ReaderScreen({
       return;
     }
 
-    setControlsVisible(true);
     setSelectionMode(true);
     setSheetVisible(false);
     setActiveWord(null);
@@ -394,9 +501,28 @@ function ReaderScreen({
       if (nextPage < 0 || nextPage >= document.pageCount) {
         return;
       }
-      pagerRef.current?.scrollToIndex({index: nextPage, animated: true});
+      pagerRef.current?.scrollToIndex({ index: nextPage, animated: true });
     },
     [document.pageCount],
+  );
+
+  const landscapePageGesture = useMemo(
+    () =>
+      Gesture.Pan()
+        .enabled(isLandscape && !selectionMode && zoomedPage === null)
+        .maxPointers(1)
+        .activeOffsetX([-24, 24])
+        .failOffsetY([-18, 18])
+        .runOnJS(true)
+        .onEnd(event => {
+          const projectedDistance = event.translationX + event.velocityX * 0.12;
+          if (projectedDistance <= -72) {
+            goToPage(page + 1);
+          } else if (projectedDistance >= 72) {
+            goToPage(page - 1);
+          }
+        }),
+    [goToPage, isLandscape, page, selectionMode, zoomedPage],
   );
 
   const handlePageSettled = useCallback(
@@ -417,7 +543,7 @@ function ReaderScreen({
   );
 
   const renderPage = useCallback(
-    ({item: pageNumber}: {item: number}) => {
+    ({ item: pageNumber }: { item: number }) => {
       const inputRange = [
         (pageNumber - 1) * pagerWidth,
         pageNumber * pagerWidth,
@@ -426,93 +552,71 @@ function ReaderScreen({
       const animatedStyle = {
         opacity: scrollX.interpolate({
           inputRange,
-          outputRange: [0.14, 1, 0.14],
+          outputRange: [0.2, 1, 0.2],
           extrapolate: 'clamp' as const,
         }),
         transform: [
-          {perspective: 1100},
-          {
-            translateX: scrollX.interpolate({
-              inputRange,
-              outputRange: [pagerWidth * 0.38, 0, pagerWidth * -0.38],
-              extrapolate: 'clamp',
-            }),
-          },
+          { perspective: 1100 },
           {
             rotateY: scrollX.interpolate({
               inputRange,
-              outputRange: ['78deg', '0deg', '-78deg'],
-              extrapolate: 'clamp',
-            }),
-          },
-          {
-            scale: scrollX.interpolate({
-              inputRange,
-              outputRange: [0.97, 1, 0.97],
+              outputRange: ['68deg', '0deg', '-68deg'],
               extrapolate: 'clamp',
             }),
           },
         ],
       };
-      const pageLayer = layer?.pages.find(p => p.pageIndex === pageNumber) ?? null;
-      const sourcePageSize =
-        pageSizes[pageNumber] ??
-        (pageLayer
-          ? {width: pageLayer.pageWidth, height: pageLayer.pageHeight}
-          : FALLBACK_PAGE_SIZE);
-      const frameSize = fitPageInFrame(
-        sourcePageSize,
-        maxPageWidth,
-        maxPageHeight,
-      );
+      const pageLayer =
+        layer?.pages.find(p => p.pageIndex === pageNumber) ?? null;
 
       return (
-        <View style={[styles.pageSlot, {width: pagerWidth}]}>
+        <View style={[styles.pageSlot, { width: pagerWidth }]}>
           <Animated.View
             style={[
               styles.pageFrame,
-              frameSize,
+              darkMode && styles.pageFrameDark,
+              { width: pagerWidth, height: stageSize.height },
               animatedStyle,
-            ]}>
-            <ZoomPdfView
-              maximumZoom={3}
-              onError={event => Alert.alert('PDF error', event.message)}
-              onZoomIn={() => {
-                setZoomedPage(pageNumber);
-                setControlsVisible(false);
+            ]}
+          >
+            <PdfOverlayContext.Provider
+              value={{
+                page: pageLayer,
+                onWordPress: handleWordPress,
+                highlightedWordRange:
+                  pageNumber === page &&
+                  (ttsStatus === 'playing' || ttsStatus === 'paused') &&
+                  currentChunkStartWordIndex >= 0 &&
+                  currentChunkEndWordIndex >= currentChunkStartWordIndex
+                    ? {
+                        start: currentChunkStartWordIndex,
+                        end: currentChunkEndWordIndex,
+                      }
+                    : null,
+                scanning: extracting && pageNumber === page,
+                selectedWord: pageNumber === page ? activeWord : null,
+                visible:
+                  zoomedPage === null && selectionMode && pageNumber === page,
               }}
-              onZoomReset={() => {
-                setZoomedPage(current =>
-                  current === pageNumber ? null : current,
-                );
-                setControlsVisible(true);
-              }}
-              page={pageNumber}
-              resizeMode="contain"
-              source={document.localUri}
-              style={styles.pdfPage}
-            />
-            <TextLayerOverlay
-              frameHeight={frameSize.height}
-              frameWidth={frameSize.width}
-              onWordPress={handleWordPress}
-              page={pageLayer}
-              highlightedWordRange={
-                pageNumber === page &&
-                (ttsStatus === 'playing' || ttsStatus === 'paused') &&
-                currentChunkStartWordIndex >= 0 &&
-                currentChunkEndWordIndex >= currentChunkStartWordIndex
-                  ? {
-                      start: currentChunkStartWordIndex,
-                      end: currentChunkEndWordIndex,
-                    }
-                  : null
-              }
-              scanning={extracting && pageNumber === page}
-              selectedWord={pageNumber === page ? activeWord : null}
-              visible={selectionMode && pageNumber === page}
-            />
-            <View pointerEvents="none" style={styles.pageEdgeLeft} />
+            >
+              <ZoomPdfView
+                insets={pdfViewInsets}
+                maximumZoom={3}
+                onError={event => Alert.alert('PDF error', event.message)}
+                onZoomIn={() => {
+                  setZoomedPage(pageNumber);
+                }}
+                onZoomReset={() => {
+                  setZoomedPage(current =>
+                    current === pageNumber ? null : current,
+                  );
+                }}
+                page={pageNumber}
+                renderComponent={PdfPageWithOverlay}
+                resizeMode={isLandscape ? 'fitWidth' : 'contain'}
+                source={document.localUri}
+              />
+            </PdfOverlayContext.Provider>
           </Animated.View>
         </View>
       );
@@ -520,27 +624,33 @@ function ReaderScreen({
     [
       activeWord,
       document.localUri,
+      darkMode,
       extracting,
       handleWordPress,
       currentChunkEndWordIndex,
       currentChunkStartWordIndex,
       layer,
-      maxPageHeight,
-      maxPageWidth,
+      isLandscape,
       page,
-      pageSizes,
       pagerWidth,
+      pdfViewInsets,
       selectionMode,
+      stageSize.height,
       ttsStatus,
       scrollX,
+      zoomedPage,
     ],
   );
 
   return (
     <SafeAreaView style={styles.readerSafeArea}>
       <View style={styles.reader}>
-        <View style={[styles.readerTopBar, !controlsVisible && styles.hidden]}>
-          <Pressable accessibilityLabel="Back" onPress={handleBack} style={styles.iconButton}>
+        <View style={styles.readerTopBar}>
+          <Pressable
+            accessibilityLabel="Back"
+            onPress={handleBack}
+            style={styles.iconButton}
+          >
             <Text style={styles.iconButtonText}>‹</Text>
           </Pressable>
           <Text numberOfLines={1} style={styles.readerTitle}>
@@ -551,22 +661,24 @@ function ReaderScreen({
               ttsStatus === 'playing'
                 ? 'Pause narration'
                 : ttsStatus === 'paused'
-                  ? 'Resume narration'
-                  : 'Read this page'
+                ? 'Resume narration'
+                : 'Read this page'
             }
             disabled={
               extracting ||
+              modelInstalling ||
               ttsStatus === 'initializing' ||
               ttsStatus === 'preparing'
             }
             onPress={handleNarration}
             style={[
               styles.narrationButton,
-              (ttsStatus === 'playing' ||
-                ttsStatus === 'paused') &&
+              (ttsStatus === 'playing' || ttsStatus === 'paused') &&
                 styles.narrationButtonActive,
-            ]}>
+            ]}
+          >
             {extracting ||
+            modelInstalling ||
             ttsStatus === 'initializing' ||
             ttsStatus === 'preparing' ? (
               <ActivityIndicator size="small" color="#171614" />
@@ -582,102 +694,122 @@ function ReaderScreen({
             <Pressable
               accessibilityLabel="Open immersive listening mode"
               onPress={onOpenImmersive}
-              style={styles.immersiveButton}>
+              style={styles.immersiveButton}
+            >
               <Text style={styles.immersiveButtonText}>♪</Text>
             </Pressable>
           )}
           <Pressable
             accessibilityLabel={
-              selectionMode ? 'Exit word selection' : 'Capture words on this page'
+              selectionMode
+                ? 'Exit word selection'
+                : 'Capture words on this page'
             }
             disabled={extracting || zoomedPage !== null}
             onPress={toggleWordCapture}
             style={[
               styles.analyzeButton,
               selectionMode && styles.analyzeButtonActive,
-            ]}>
+            ]}
+          >
             {extracting ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : selectionMode ? (
-              <Text style={styles.analyzeButtonText}>X</Text>
+              <X color="#171614" size={18} strokeWidth={2.5} />
             ) : (
               <View style={styles.captureGlyph}>
-                <View style={[styles.captureCorner, styles.captureCornerTopLeft]} />
-                <View style={[styles.captureCorner, styles.captureCornerTopRight]} />
-                <View style={[styles.captureCorner, styles.captureCornerBottomLeft]} />
-                <View style={[styles.captureCorner, styles.captureCornerBottomRight]} />
+                <View
+                  style={[styles.captureCorner, styles.captureCornerTopLeft]}
+                />
+                <View
+                  style={[styles.captureCorner, styles.captureCornerTopRight]}
+                />
+                <View
+                  style={[styles.captureCorner, styles.captureCornerBottomLeft]}
+                />
+                <View
+                  style={[
+                    styles.captureCorner,
+                    styles.captureCornerBottomRight,
+                  ]}
+                />
               </View>
             )}
           </Pressable>
         </View>
 
-        <View onLayout={handleStageLayout} style={styles.readerStage}>
-          <Animated.FlatList
-            data={pages}
-            decelerationRate="fast"
-            disableIntervalMomentum
-            getItemLayout={(_, index) => ({
-              length: pagerWidth,
-              offset: pagerWidth * index,
-              index,
-            })}
-            horizontal
-            initialNumToRender={3}
-            initialScrollIndex={page}
-            key={`reader-pager-${Math.round(pagerWidth)}`}
-            keyExtractor={item => String(item)}
-            maxToRenderPerBatch={3}
-            onMomentumScrollEnd={handlePageSettled}
-            onScroll={Animated.event(
-              [{nativeEvent: {contentOffset: {x: scrollX}}}],
-              {useNativeDriver: true},
-            )}
-            onScrollToIndexFailed={info =>
-              pagerRef.current?.scrollToOffset({
-                offset: info.index * pagerWidth,
-                animated: false,
-              })
-            }
-            pagingEnabled
-            ref={pagerRef}
-            renderItem={renderPage}
-            scrollEnabled={!selectionMode && zoomedPage === null}
-            scrollEventThrottle={16}
-            showsHorizontalScrollIndicator={false}
-            style={styles.pager}
-            windowSize={5}
-          />
+        <View
+          onLayout={handleStageLayout}
+          style={[styles.readerStage, darkMode && styles.readerStageDark]}
+        >
+          <GestureDetector gesture={landscapePageGesture}>
+            <Animated.View style={[styles.pager, darkMode && styles.pagerDark]}>
+              <Animated.FlatList
+                data={pages}
+                decelerationRate="fast"
+                disableIntervalMomentum
+                getItemLayout={(_, index) => ({
+                  length: pagerWidth,
+                  offset: pagerWidth * index,
+                  index,
+                })}
+                horizontal
+                initialNumToRender={3}
+                initialScrollIndex={page}
+                keyExtractor={item => String(item)}
+                maxToRenderPerBatch={3}
+                onMomentumScrollEnd={handlePageSettled}
+                onScroll={Animated.event(
+                  [{ nativeEvent: { contentOffset: { x: scrollX } } }],
+                  { useNativeDriver: true },
+                )}
+                onScrollToIndexFailed={info =>
+                  pagerRef.current?.scrollToOffset({
+                    offset: info.index * pagerWidth,
+                    animated: false,
+                  })
+                }
+                pagingEnabled
+                ref={pagerRef}
+                renderItem={renderPage}
+                scrollEnabled={
+                  !isLandscape && !selectionMode && zoomedPage === null
+                }
+                scrollEventThrottle={16}
+                showsHorizontalScrollIndicator={false}
+                style={[styles.pager, darkMode && styles.pagerDark]}
+                windowSize={5}
+              />
+            </Animated.View>
+          </GestureDetector>
         </View>
 
-        <View
+        <FloatingNavigationContainer
           pointerEvents={selectionMode ? 'none' : 'auto'}
-          style={[
-            styles.readerControls,
-            (!controlsVisible || selectionMode) && styles.hidden,
-          ]}>
+          style={selectionMode && styles.hidden}
+        >
           <Pressable
             accessibilityLabel="Previous page"
             disabled={page === 0}
             onPress={() => goToPage(page - 1)}
-            style={[styles.pageButton, page === 0 && styles.disabledButton]}>
-            <Text style={styles.pageButtonText}>‹</Text>
+            style={[styles.pageButton, page === 0 && styles.disabledButton]}
+          >
+            <ChevronLeft color="#171614" size={24} strokeWidth={2.25} />
           </Pressable>
           <View style={styles.pageCounter}>
-            <Text style={styles.pageCounterText}>
+            <Text
+              style={[
+                styles.pageCounterText,
+                darkMode && styles.pageCounterTextDark,
+              ]}
+            >
               {page + 1} / {document.pageCount}
             </Text>
-
-            {ttsStatus === 'playing' && totalChunks > 0 && (
-              <Text style={styles.narrationProgress}>
-                {currentChunk}/{totalChunks}
-              </Text>
-            )}
-            
             <View style={styles.readerProgressTrack}>
               <View
                 style={[
                   styles.readerProgressFill,
-                  {width: `${((page + 1) / document.pageCount) * 100}%`},
+                  { width: `${((page + 1) / document.pageCount) * 100}%` },
                 ]}
               />
             </View>
@@ -689,10 +821,11 @@ function ReaderScreen({
             style={[
               styles.pageButton,
               page >= document.pageCount - 1 && styles.disabledButton,
-            ]}>
-            <Text style={styles.pageButtonText}>›</Text>
+            ]}
+          >
+            <ChevronRight color="#171614" size={24} strokeWidth={2.25} />
           </Pressable>
-        </View>
+        </FloatingNavigationContainer>
       </View>
 
       <DictionarySheet

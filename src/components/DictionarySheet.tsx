@@ -168,7 +168,7 @@ const styles = StyleSheet.create({
     borderTopRightRadius: 26,
     backgroundColor: colors.background,
     paddingTop: 10,
-    paddingHorizontal: 22,
+    paddingHorizontal: 44,
     paddingBottom: 28,
   },
   sheetDark: {backgroundColor: colors.darkBackground},

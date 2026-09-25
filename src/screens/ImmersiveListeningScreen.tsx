@@ -9,6 +9,7 @@ import {
   ScrollView,
   Text,
   View,
+  useWindowDimensions,
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import {KOKORO_VOICES, useAppSettings} from '../features/settings/AppSettingsProvider';
@@ -43,6 +44,8 @@ function ImmersiveListeningScreen({
   document,
   onClose,
 }: ImmersiveListeningScreenProps): React.JSX.Element {
+  const {width: windowWidth, height: windowHeight} = useWindowDimensions();
+  const isLandscape = windowWidth > windowHeight;
   const {voiceId, speed, darkMode} = useAppSettings();
   const {
     status,
@@ -154,7 +157,7 @@ function ImmersiveListeningScreen({
 
   return (
     <SafeAreaView style={[styles.safeArea, darkMode && styles.safeAreaDark]}>
-      <View style={styles.header}>
+      <View style={[styles.header, isLandscape && styles.headerLandscape]}>
         <Pressable
           accessibilityLabel="Return to reader"
           onPress={onClose}
@@ -175,12 +178,37 @@ function ImmersiveListeningScreen({
       </View>
 
       <ScrollView
-        contentContainerStyle={styles.content}
+        contentContainerStyle={[
+          styles.content,
+          isLandscape && styles.contentLandscape,
+        ]}
         showsVerticalScrollIndicator={false}>
-        <View style={styles.coverScene}>
+        <View
+          style={[
+            styles.listeningBody,
+            isLandscape && styles.listeningBodyLandscape,
+          ]}>
+          <View
+            style={[
+              styles.visualColumn,
+              isLandscape && styles.visualColumnLandscape,
+            ]}>
+        <View
+          style={[styles.coverScene, isLandscape && styles.coverSceneLandscape]}>
           <View style={styles.accentOrb} />
-          <View style={[styles.coverShadow, darkMode && styles.coverShadowDark]} />
-          <View style={[styles.cover, darkMode && styles.coverDark]}>
+          <View
+            style={[
+              styles.coverShadow,
+              isLandscape && styles.coverShadowLandscape,
+              darkMode && styles.coverShadowDark,
+            ]}
+          />
+          <View
+            style={[
+              styles.cover,
+              isLandscape && styles.coverLandscape,
+              darkMode && styles.coverDark,
+            ]}>
             <Text style={styles.coverMark}>WORMHOLE</Text>
             <View style={styles.coverRule} />
             <Text numberOfLines={5} style={styles.coverTitle}>{document.title}</Text>
@@ -190,30 +218,47 @@ function ImmersiveListeningScreen({
 
         <Text
           numberOfLines={2}
-          style={[styles.bookTitle, darkMode && styles.textDark]}>
+          style={[
+            styles.bookTitle,
+            isLandscape && styles.bookTitleLandscape,
+            darkMode && styles.textDark,
+          ]}>
           {document.title}
         </Text>
         <Text style={[styles.narratorMeta, darkMode && styles.mutedDark]}>
           {voice?.name ?? 'Kokoro'} · {speed}x · Offline
         </Text>
 
-        <View style={styles.transcript}>
+          </View>
+          <View
+            style={[
+              styles.playbackColumn,
+              isLandscape && styles.playbackColumnLandscape,
+            ]}>
+
+        <View
+          style={[
+            styles.transcript,
+            isLandscape && styles.transcriptLandscape,
+          ]}>
           {previousText && (
             <Text
-              numberOfLines={2}
+              numberOfLines={isLandscape ? 1 : 2}
               style={[styles.contextText, darkMode && styles.contextTextDark]}>
               {previousText}
             </Text>
           )}
           <View style={styles.activeTextWrap}>
             <View style={styles.activeTextAccent} />
-            <Text style={[styles.activeText, darkMode && styles.textDark]}>
+            <Text
+              numberOfLines={isLandscape ? 4 : undefined}
+              style={[styles.activeText, darkMode && styles.textDark]}>
               {error || activeText}
             </Text>
           </View>
           {nextText && (
             <Text
-              numberOfLines={2}
+              numberOfLines={isLandscape ? 1 : 2}
               style={[styles.contextText, darkMode && styles.contextTextDark]}>
               {nextText}
             </Text>
@@ -285,7 +330,8 @@ function ImmersiveListeningScreen({
           </View>
         )}
 
-        <View style={styles.controls}>
+        <View
+          style={[styles.controls, isLandscape && styles.controlsLandscape]}>
           <Pressable
             accessibilityLabel="Previous narration chunk"
             disabled={!canSkip || currentChunk <= 1}
@@ -335,6 +381,8 @@ function ImmersiveListeningScreen({
             </Text>
           </Pressable>
         )}
+          </View>
+        </View>
       </ScrollView>
     </SafeAreaView>
   );

@@ -8,6 +8,10 @@ interface TextLayerOverlayProps {
   frameWidth: number;
   /** Height of the rendered page frame (px). */
   frameHeight: number;
+  /** Horizontal inset used by the PDF zoom surface at its resting scale. */
+  horizontalInset?: number;
+  /** Vertical inset used by the PDF zoom surface at its resting scale. */
+  verticalInset?: number;
   onWordPress: (word: WordBox) => void;
   selectedWord?: WordBox | null;
   highlightedWordRange?: {start: number; end: number} | null;
@@ -78,6 +82,8 @@ function TextLayerOverlay({
   page,
   frameWidth,
   frameHeight,
+  horizontalInset = 0,
+  verticalInset = 0,
   onWordPress,
   selectedWord = null,
   highlightedWordRange = null,
@@ -116,27 +122,29 @@ function TextLayerOverlay({
       return null;
     }
     const pageAspect = page.pageWidth / page.pageHeight;
-    const frameAspect = frameWidth / frameHeight;
+    const contentWidth = Math.max(1, frameWidth - horizontalInset * 2);
+    const contentHeight = Math.max(1, frameHeight - verticalInset * 2);
+    const frameAspect = contentWidth / contentHeight;
 
     let rectWidth: number;
     let rectHeight: number;
     if (frameAspect > pageAspect) {
       // Frame is wider than the page -> page is height-constrained.
-      rectHeight = frameHeight;
+      rectHeight = contentHeight;
       rectWidth = rectHeight * pageAspect;
     } else {
       // Frame is taller than the page -> page is width-constrained.
-      rectWidth = frameWidth;
+      rectWidth = contentWidth;
       rectHeight = rectWidth / pageAspect;
     }
 
-    const rectX = (frameWidth - rectWidth) / 2;
+    const rectX = horizontalInset + (contentWidth - rectWidth) / 2;
     // ZoomPdfView's `contain` rendering is horizontally centered but anchored
     // to the top of its frame. Vertically centering this overlay introduced a
     // false offset whenever the rendered PDF was shorter than the frame.
-    const rectY = 0;
+    const rectY = verticalInset;
     return { rectX, rectY, rectWidth, rectHeight };
-  }, [frameHeight, frameWidth, page]);
+  }, [frameHeight, frameWidth, horizontalInset, page, verticalInset]);
 
   const highlightBands = useMemo(
     () => buildHighlightBands(page?.words ?? [], highlightedWordRange),

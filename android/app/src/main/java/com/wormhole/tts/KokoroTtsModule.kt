@@ -17,8 +17,16 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.net.URL
 import java.security.MessageDigest
+import java.lang.ref.WeakReference
 
+import android.media.AudioAttributes
 import android.media.MediaPlayer
+import android.media.session.PlaybackState
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
+import android.content.Context
+import android.os.Build
 import org.apache.commons.compress.archivers.tar.TarArchiveInputStream
 import org.apache.commons.compress.compressors.bzip2.BZip2CompressorInputStream
 
@@ -34,11 +42,18 @@ class KokoroTtsModule(
     
     private var listenerCount = 0
     private var currentAudioPath: String? = null
+    private var currentPlaybackTitle = "Wormhole narration"
+    private var currentPlaybackSubtitle = "Offline narration"
     
     private var playbackCompletionPromise: Promise? = null
     
     companion object {
         private const val PLAYBACK_FINISHED_EVENT = "KokoroPlaybackFinished"
+        private const val MEDIA_CONTROL_EVENT = "KokoroMediaControl"
+        private const val MODEL_DOWNLOAD_PROGRESS_EVENT =
+            "KokoroModelDownloadProgress"
+        private const val MODEL_DOWNLOAD_CHANNEL = "kokoro_model_download"
+        private const val MODEL_DOWNLOAD_NOTIFICATION_ID = 82019
         private const val MODEL_URL =
             "https://github.com/k2-fsa/sherpa-onnx/releases/download/tts-models/kokoro-int8-en-v0_19.tar.bz2"
         private const val MODEL_FOLDER = "kokoro-en-v0_19"
@@ -49,6 +64,21 @@ class KokoroTtsModule(
         private const val MAX_EXTRACTED_BYTES = 600L * 1024L * 1024L
         private const val MAX_ENTRY_BYTES = 500L * 1024L * 1024L
         private const val MAX_ARCHIVE_ENTRIES = 2_000
+
+        @Volatile
+        private var activeInstance: WeakReference<KokoroTtsModule>? = null
+
+        fun handleMediaControl(control: String): Boolean {
+            val module = activeInstance?.get() ?: return false
+            module.reactApplicationContext.runOnUiQueueThread {
+                module.handleMediaControlOnUiThread(control)
+            }
+            return true
+        }
+    }
+
+    init {
+        activeInstance = WeakReference(this)
     }
     
     override fun getName(): String {
@@ -70,6 +100,13 @@ class KokoroTtsModule(
                     File(reactApplicationContext.filesDir, "models"),
                     "Kokoro model directory",
                 )
+                if (!isModelInstalled(safeModelDirectory)) {
+                    promise.reject(
+                        "E_KOKORO_MODEL_MISSING",
+                        "The offline Kokoro voice model is not installed for this Wormhole build.",
+                    )
+                    return@execute
+                }
                 val info = engine.initialize(
                     modelDirectory = safeModelDirectory.absolutePath,
                     threadCount = threadCount.toInt(),
@@ -100,6 +137,9 @@ class KokoroTtsModule(
     }
     
     override fun invalidate() {
+        if (activeInstance?.get() === this) {
+            activeInstance = null
+        }
         executor.execute {
             engine.release()
         }
@@ -116,6 +156,7 @@ class KokoroTtsModule(
             mediaPlayer?.release()
             mediaPlayer = null
             currentAudioPath = null
+            KokoroPlaybackService.stopPlayback(reactApplicationContext)
         }
         
         super.invalidate()
@@ -193,7 +234,12 @@ class KokoroTtsModule(
     // ----------------------- Kokoro Model Control -------------------------- 
     
     @ReactMethod
-    fun play(filePath: String, promise: Promise) {
+    fun play(
+        filePath: String,
+        title: String,
+        subtitle: String,
+        promise: Promise,
+    ) {
         reactApplicationContext.runOnUiQueueThread {
             try {
                 val audioFile = requireDescendant(
@@ -203,6 +249,10 @@ class KokoroTtsModule(
                 )
                 
                 currentAudioPath = audioFile.absolutePath
+                currentPlaybackTitle = title.takeIf { it.isNotBlank() }
+                    ?: "Wormhole narration"
+                currentPlaybackSubtitle = subtitle.takeIf { it.isNotBlank() }
+                    ?: "Offline narration"
                 
                 require(audioFile.isFile) {
                     "Audio file does not exist: ${audioFile.absolutePath}"
@@ -212,6 +262,12 @@ class KokoroTtsModule(
                 
                 val newPlayer = MediaPlayer()
                 mediaPlayer = newPlayer
+                newPlayer.setAudioAttributes(
+                    AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_MEDIA)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH)
+                        .build(),
+                )
                 
                 newPlayer.setDataSource(audioFile.absolutePath)
                 
@@ -224,11 +280,23 @@ class KokoroTtsModule(
                     
                     val completedPath = currentAudioPath
                     val completionPromise = playbackCompletionPromise
+                    val completedDuration = completedPlayer.duration
+                        .coerceAtLeast(0)
+                        .toLong()
                     playbackCompletionPromise = null
                     
                     completedPlayer.release()
                     mediaPlayer = null
                     currentAudioPath = null
+
+                    KokoroPlaybackService.showPlayback(
+                        reactApplicationContext,
+                        currentPlaybackTitle,
+                        "Preparing the next passage…",
+                        completedDuration,
+                        completedDuration,
+                        PlaybackState.STATE_BUFFERING,
+                    )
                     
                     completionPromise?.resolve(true)
                     
@@ -242,6 +310,14 @@ class KokoroTtsModule(
                 val durationMs = newPlayer.duration
                 
                 newPlayer.start()
+                KokoroPlaybackService.showPlayback(
+                    reactApplicationContext,
+                    currentPlaybackTitle,
+                    currentPlaybackSubtitle,
+                    durationMs.toLong(),
+                    0L,
+                    PlaybackState.STATE_PLAYING,
+                )
                 promise.resolve(durationMs)
             } catch (error: Throwable) {
                 playbackCompletionPromise?.resolve(false)
@@ -250,6 +326,7 @@ class KokoroTtsModule(
                 mediaPlayer?.release()
                 mediaPlayer = null
                 currentAudioPath = null
+                KokoroPlaybackService.stopPlayback(reactApplicationContext)
                 
                 promise.reject(
                     "E_KOKORO_PLAYBACK",
@@ -261,14 +338,9 @@ class KokoroTtsModule(
     }
     
     @ReactMethod
-    fun stop() {
+    fun stop(keepNotification: Boolean) {
         reactApplicationContext.runOnUiQueueThread {
-            playbackCompletionPromise?.resolve(false)
-            playbackCompletionPromise = null
-            
-            mediaPlayer?.release()
-            mediaPlayer = null
-            currentAudioPath = null
+            stopPlaybackOnUiThread(keepNotification)
         }
     }
     
@@ -283,6 +355,15 @@ class KokoroTtsModule(
                 if (player.isPlaying) {
                     player.pause()
                 }
+
+                KokoroPlaybackService.showPlayback(
+                    reactApplicationContext,
+                    currentPlaybackTitle,
+                    currentPlaybackSubtitle,
+                    player.duration.coerceAtLeast(0).toLong(),
+                    player.currentPosition.coerceAtLeast(0).toLong(),
+                    PlaybackState.STATE_PAUSED,
+                )
                 
                 promise.resolve(player.currentPosition)
             } catch (error: Throwable) {
@@ -306,6 +387,15 @@ class KokoroTtsModule(
                 if (!player.isPlaying) {
                     player.start()
                 }
+
+                KokoroPlaybackService.showPlayback(
+                    reactApplicationContext,
+                    currentPlaybackTitle,
+                    currentPlaybackSubtitle,
+                    player.duration.coerceAtLeast(0).toLong(),
+                    player.currentPosition.coerceAtLeast(0).toLong(),
+                    PlaybackState.STATE_PLAYING,
+                )
                 
                 promise.resolve(player.currentPosition)
             } catch (error: Throwable) {
@@ -368,6 +458,8 @@ class KokoroTtsModule(
                 check(contentLength < 0L || contentLength <= MAX_ARCHIVE_BYTES) {
                     "Kokoro model archive exceeds the download safety limit"
                 }
+                emitModelDownloadProgress("downloading", 0L, contentLength)
+                var lastProgressEmission = 0L
                 connection.getInputStream().use { input ->
                     FileOutputStream(archiveFile).use { output ->
                         copyWithLimit(
@@ -375,13 +467,35 @@ class KokoroTtsModule(
                             output = output,
                             maxBytes = MAX_ARCHIVE_BYTES,
                             label = "Kokoro model archive",
-                        )
+                        ) { copiedBytes ->
+                            if (
+                                copiedBytes - lastProgressEmission >= 512L * 1024L ||
+                                (contentLength > 0L && copiedBytes >= contentLength)
+                            ) {
+                                lastProgressEmission = copiedBytes
+                                emitModelDownloadProgress(
+                                    "downloading",
+                                    copiedBytes,
+                                    contentLength,
+                                )
+                            }
+                        }
                     }
                 }
+                emitModelDownloadProgress(
+                    "verifying",
+                    archiveFile.length(),
+                    contentLength,
+                )
                 check(sha256(archiveFile) == MODEL_ARCHIVE_SHA256) {
                     "Kokoro model archive failed integrity verification"
                 }
 
+                emitModelDownloadProgress(
+                    "installing",
+                    archiveFile.length(),
+                    contentLength,
+                )
                 BZip2CompressorInputStream(
                     BufferedInputStream(FileInputStream(archiveFile)),
                 ).use { compressed ->
@@ -454,8 +568,14 @@ class KokoroTtsModule(
                     "Unable to install the downloaded Kokoro model"
                 }
 
+                emitModelDownloadProgress(
+                    "complete",
+                    contentLength.coerceAtLeast(archiveFile.length()),
+                    contentLength,
+                )
                 promise.resolve(createModelStatus())
             } catch (error: Throwable) {
+                emitModelDownloadProgress("failed", 0L, -1L)
                 promise.reject(
                     "E_KOKORO_MODEL_DOWNLOAD",
                     error.message ?: "Unable to download Kokoro model",
@@ -492,6 +612,7 @@ class KokoroTtsModule(
         output: OutputStream,
         maxBytes: Long,
         label: String,
+        onProgress: ((Long) -> Unit)? = null,
     ): Long {
         val buffer = ByteArray(128 * 1024)
         var total = 0L
@@ -506,6 +627,7 @@ class KokoroTtsModule(
             }
             output.write(buffer, 0, count)
             total = nextTotal
+            onProgress?.invoke(total)
         }
     }
 
@@ -595,6 +717,179 @@ class KokoroTtsModule(
             PLAYBACK_FINISHED_EVENT, 
             payload,
         )
+    }
+
+    private fun handleMediaControlOnUiThread(control: String) {
+        when (control) {
+            KokoroPlaybackService.CONTROL_PAUSE -> {
+                val player = mediaPlayer ?: return
+                if (player.isPlaying) {
+                    player.pause()
+                }
+                KokoroPlaybackService.showPlayback(
+                    reactApplicationContext,
+                    currentPlaybackTitle,
+                    currentPlaybackSubtitle,
+                    player.duration.coerceAtLeast(0).toLong(),
+                    player.currentPosition.coerceAtLeast(0).toLong(),
+                    PlaybackState.STATE_PAUSED,
+                )
+                emitMediaControl(control)
+            }
+            KokoroPlaybackService.CONTROL_PLAY -> {
+                val player = mediaPlayer ?: return
+                if (!player.isPlaying) {
+                    player.start()
+                }
+                KokoroPlaybackService.showPlayback(
+                    reactApplicationContext,
+                    currentPlaybackTitle,
+                    currentPlaybackSubtitle,
+                    player.duration.coerceAtLeast(0).toLong(),
+                    player.currentPosition.coerceAtLeast(0).toLong(),
+                    PlaybackState.STATE_PLAYING,
+                )
+                emitMediaControl(control)
+            }
+            KokoroPlaybackService.CONTROL_STOP -> {
+                stopPlaybackOnUiThread(keepNotification = false)
+                emitMediaControl(control)
+            }
+            KokoroPlaybackService.CONTROL_PREVIOUS,
+            KokoroPlaybackService.CONTROL_NEXT -> emitMediaControl(control)
+        }
+    }
+
+    private fun stopPlaybackOnUiThread(keepNotification: Boolean) {
+        val player = mediaPlayer
+        val durationMs = player?.duration?.coerceAtLeast(0)?.toLong() ?: 0L
+        val positionMs = player?.currentPosition?.coerceAtLeast(0)?.toLong() ?: 0L
+        playbackCompletionPromise?.resolve(false)
+        playbackCompletionPromise = null
+        player?.release()
+        mediaPlayer = null
+        currentAudioPath = null
+        if (keepNotification) {
+            KokoroPlaybackService.showPlayback(
+                reactApplicationContext,
+                currentPlaybackTitle,
+                "Preparing the selected passage…",
+                durationMs,
+                positionMs,
+                PlaybackState.STATE_BUFFERING,
+            )
+        } else {
+            KokoroPlaybackService.stopPlayback(reactApplicationContext)
+        }
+    }
+
+    private fun emitMediaControl(control: String) {
+        val payload = Arguments.createMap().apply {
+            putString("action", control)
+        }
+        reactApplicationContext.emitDeviceEvent(MEDIA_CONTROL_EVENT, payload)
+    }
+
+    private fun emitModelDownloadProgress(
+        phase: String,
+        completedBytes: Long,
+        totalBytes: Long,
+    ) {
+        val payload = Arguments.createMap().apply {
+            putString("phase", phase)
+            putDouble("completedBytes", completedBytes.toDouble())
+            putDouble("totalBytes", totalBytes.toDouble())
+            if (totalBytes > 0L) {
+                putDouble(
+                    "progress",
+                    (completedBytes.toDouble() / totalBytes.toDouble())
+                        .coerceIn(0.0, 1.0),
+                )
+            } else {
+                putNull("progress")
+            }
+        }
+
+        reactApplicationContext.emitDeviceEvent(
+            MODEL_DOWNLOAD_PROGRESS_EVENT,
+            payload,
+        )
+        showModelDownloadNotification(phase, completedBytes, totalBytes)
+    }
+
+    private fun showModelDownloadNotification(
+        phase: String,
+        completedBytes: Long,
+        totalBytes: Long,
+    ) {
+        val manager = reactApplicationContext.getSystemService(
+            Context.NOTIFICATION_SERVICE,
+        ) as NotificationManager
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    MODEL_DOWNLOAD_CHANNEL,
+                    "Offline voice model downloads",
+                    NotificationManager.IMPORTANCE_LOW,
+                ).apply {
+                    description = "Progress while Wormhole downloads offline narration"
+                },
+            )
+        }
+
+        val title = when (phase) {
+            "verifying" -> "Verifying Kokoro model"
+            "installing" -> "Installing Kokoro model"
+            "complete" -> "Kokoro model ready"
+            "failed" -> "Kokoro model download failed"
+            else -> "Downloading Kokoro model"
+        }
+        val text = when {
+            phase == "complete" -> "Offline narration is ready."
+            phase == "failed" -> "Open Wormhole Settings to try again."
+            phase == "downloading" && totalBytes > 0L -> {
+                val percent = ((completedBytes * 100L) / totalBytes)
+                    .coerceIn(0L, 100L)
+                "$percent% downloaded"
+            }
+            phase == "downloading" -> "Download in progress"
+            phase == "verifying" -> "Checking the downloaded model"
+            else -> "Preparing files for offline narration"
+        }
+
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            Notification.Builder(reactApplicationContext, MODEL_DOWNLOAD_CHANNEL)
+        } else {
+            Notification.Builder(reactApplicationContext)
+        }
+            .setSmallIcon(
+                if (phase == "complete") {
+                    android.R.drawable.stat_sys_download_done
+                } else {
+                    android.R.drawable.stat_sys_download
+                },
+            )
+            .setContentTitle(title)
+            .setContentText(text)
+            .setOnlyAlertOnce(true)
+            .setOngoing(phase != "complete" && phase != "failed")
+            .setAutoCancel(phase == "complete" || phase == "failed")
+
+        if (phase == "downloading") {
+            if (totalBytes > 0L) {
+                val percent = ((completedBytes * 100L) / totalBytes)
+                    .coerceIn(0L, 100L)
+                    .toInt()
+                builder.setProgress(100, percent, false)
+            } else {
+                builder.setProgress(0, 0, true)
+            }
+        } else if (phase != "complete" && phase != "failed") {
+            builder.setProgress(0, 0, true)
+        }
+
+        manager.notify(MODEL_DOWNLOAD_NOTIFICATION_ID, builder.build())
     }
     
     @ReactMethod

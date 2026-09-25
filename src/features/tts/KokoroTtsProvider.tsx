@@ -1,313 +1,331 @@
 import React, {
-    createContext,
-    useCallback,
-    useContext,
-    useEffect,
-    useMemo,
-    useRef,
-    useState,
-} from "react";
-import  {
-    initializeKokoro,
-    prepareKokoroModelDirectory,
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
+import {
+  initializeKokoro,
+  prepareKokoroModelDirectory,
+  subscribeToKokoroMediaControl,
 } from './kokoro-client';
-import { TtsPlaybackQueue } from "./tts-playback-queue";
+import { TtsPlaybackQueue } from './tts-playback-queue';
 
-export type TtsStatus = 
-    | 'idle'
-    | 'initializing'
-    | 'ready'
-    | 'preparing'
-    | 'playing'
-    | 'paused'
-    | 'error';
+export type TtsStatus =
+  | 'idle'
+  | 'initializing'
+  | 'ready'
+  | 'preparing'
+  | 'playing'
+  | 'paused'
+  | 'error';
 
 type TtsState = {
-    status: TtsStatus;
-    currentChunk: number;
-    totalChunks: number;
-    currentChunkStartWordIndex: number;
-    currentChunkEndWordIndex: number;
-    currentChunkText: string;
-    narrationText: string;
-    error: string | null;
+  status: TtsStatus;
+  currentChunk: number;
+  totalChunks: number;
+  currentChunkStartWordIndex: number;
+  currentChunkEndWordIndex: number;
+  currentChunkText: string;
+  narrationText: string;
+  error: string | null;
 };
 
 type KokoroTtsContextValue = TtsState & {
-    initialize(): Promise<void>;
-    read(text: string, voiceId?: number, speed?: number): Promise<void>;
-    pause(): Promise<void>;
-    resume(): Promise<void>;
-    previousChunk(): Promise<void>;
-    nextChunk(): Promise<void>;
-    stop(): void;
+  initialize(): Promise<void>;
+  read(
+    text: string,
+    voiceId?: number,
+    speed?: number,
+    title?: string,
+  ): Promise<void>;
+  pause(): Promise<void>;
+  resume(): Promise<void>;
+  previousChunk(): Promise<void>;
+  nextChunk(): Promise<void>;
+  stop(): void;
 };
 
 const initialState: TtsState = {
-    status: 'idle',
-    currentChunk: 0,
-    totalChunks: 0,
-    currentChunkStartWordIndex: -1,
-    currentChunkEndWordIndex: -1,
-    currentChunkText: '',
-    narrationText: '',
-    error: null,
+  status: 'idle',
+  currentChunk: 0,
+  totalChunks: 0,
+  currentChunkStartWordIndex: -1,
+  currentChunkEndWordIndex: -1,
+  currentChunkText: '',
+  narrationText: '',
+  error: null,
 };
 
 const kokoroTtsContext = createContext<KokoroTtsContextValue | null>(null);
 
 function normalizeError(error: unknown): Error {
-    return error instanceof Error
-        ? error
-        : new Error(String(error));
+  return error instanceof Error ? error : new Error(String(error));
 }
 
 export function KokoroTtsProvider({
-    children,
+  children,
 }: React.PropsWithChildren): React.JSX.Element {
-    const [state, setState] = useState(initialState);
+  const [state, setState] = useState(initialState);
 
-    const queueRef = useRef<TtsPlaybackQueue | null>(null);
-    const initializedRef = useRef(false);
-    const initializationRef = useRef<Promise<void> | null>(null); 
+  const queueRef = useRef<TtsPlaybackQueue | null>(null);
+  const initializedRef = useRef(false);
+  const initializationRef = useRef<Promise<void> | null>(null);
 
-    useEffect(() => {
-        const queue = new TtsPlaybackQueue({
-            onPreparing(index, total, text) {
-                setState(current => ({
-                    ...current,
-                    status: 'preparing',
-                    currentChunk: index + 1,
-                    totalChunks: total,
-                    currentChunkStartWordIndex: -1,
-                    currentChunkEndWordIndex: -1,
-                    currentChunkText: text,
-                    error: null,
-                }));
-            },
+  useEffect(() => {
+    const queue = new TtsPlaybackQueue({
+      onPreparing(index, total, text) {
+        setState(current => ({
+          ...current,
+          status: 'preparing',
+          currentChunk: index + 1,
+          totalChunks: total,
+          currentChunkStartWordIndex: -1,
+          currentChunkEndWordIndex: -1,
+          currentChunkText: text,
+          error: null,
+        }));
+      },
 
-            onChunkChange(index, total, startWordIndex, endWordIndex, text) {
-                setState(current => ({
-                    ...current,
-                    status: 'playing',
-                    currentChunk: index + 1,
-                    totalChunks: total,
-                    currentChunkStartWordIndex: startWordIndex,
-                    currentChunkEndWordIndex: endWordIndex,
-                    currentChunkText: text,
-                    error: null,
-                }));
-            },
+      onChunkChange(index, total, startWordIndex, endWordIndex, text) {
+        setState(current => ({
+          ...current,
+          status: 'playing',
+          currentChunk: index + 1,
+          totalChunks: total,
+          currentChunkStartWordIndex: startWordIndex,
+          currentChunkEndWordIndex: endWordIndex,
+          currentChunkText: text,
+          error: null,
+        }));
+      },
 
-            onComplete() {
-                setState(current => ({
-                    ...current,
-                    status: 'ready',
-                    currentChunk: 0,
-                    totalChunks: 0,
-                    currentChunkStartWordIndex: -1,
-                    currentChunkEndWordIndex: -1,
-                    currentChunkText: '',
-                    narrationText: '',
-                }))
-            },
+      onComplete() {
+        setState(current => ({
+          ...current,
+          status: 'ready',
+          currentChunk: 0,
+          totalChunks: 0,
+          currentChunkStartWordIndex: -1,
+          currentChunkEndWordIndex: -1,
+          currentChunkText: '',
+          narrationText: '',
+        }));
+      },
 
-            onError(error) {
-                setState({
-                    status: 'error',
-                    currentChunk: 0,
-                    totalChunks: 0,
-                    currentChunkStartWordIndex: -1,
-                    currentChunkEndWordIndex: -1,
-                    currentChunkText: '',
-                    narrationText: '',
-                    error: error.message,
-                });
-            },
+      onError(error) {
+        setState({
+          status: 'error',
+          currentChunk: 0,
+          totalChunks: 0,
+          currentChunkStartWordIndex: -1,
+          currentChunkEndWordIndex: -1,
+          currentChunkText: '',
+          narrationText: '',
+          error: error.message,
+        });
+      },
+    });
+
+    queueRef.current = queue;
+    const removeMediaControlListener = subscribeToKokoroMediaControl(event => {
+      if (event.action === 'stop') {
+        queue.handleExternalStop();
+        return;
+      }
+      if (event.action === 'previous' || event.action === 'next') {
+        void queue.skipBy(event.action === 'previous' ? -1 : 1);
+        return;
+      }
+      setState(current => ({
+        ...current,
+        status: event.action === 'play' ? 'playing' : 'paused',
+      }));
+    });
+
+    return () => {
+      removeMediaControlListener();
+      queueRef.current = null;
+      queue.dispose();
+    };
+  }, []);
+
+  const initialize = useCallback(async (): Promise<void> => {
+    if (initializedRef.current) {
+      return;
+    }
+
+    if (!initializationRef.current) {
+      setState(current => ({
+        ...current,
+        status: 'initializing',
+        error: null,
+      }));
+
+      initializationRef.current = (async () => {
+        const directory = await prepareKokoroModelDirectory();
+
+        await initializeKokoro(directory, 4);
+
+        initializedRef.current = true;
+
+        setState(current => ({
+          ...current,
+          status: 'ready',
+          error: null,
+        }));
+      })().catch(error => {
+        initializationRef.current = null;
+
+        const normalized = normalizeError(error);
+
+        setState({
+          status: 'error',
+          currentChunk: 0,
+          totalChunks: 0,
+          currentChunkStartWordIndex: -1,
+          currentChunkEndWordIndex: -1,
+          currentChunkText: '',
+          narrationText: '',
+          error: normalized.message,
         });
 
-        queueRef.current = queue;
+        throw normalized;
+      });
+    }
 
-        return () => {
-            queueRef.current = null;
-            queue.dispose();
-        };
-    }, []);
+    await initializationRef.current;
+  }, []);
 
-    const initialize = useCallback(async (): Promise<void> => {
-        if (initializedRef.current) {
-            return;
-        }
+  const read = useCallback(
+    async (
+      text: string,
+      voiceId = 1,
+      speed = 1,
+      title = 'Wormhole narration',
+    ): Promise<void> => {
+      setState(current => ({
+        ...current,
+        narrationText: text,
+        currentChunkText: '',
+        error: null,
+      }));
+      await initialize();
 
-        if (!initializationRef.current) {
-            setState(current => ({
-                ...current,
-                status: 'initializing',
-                error: null,
-            }));
+      const queue = queueRef.current;
 
-            initializationRef.current = (async () => {
-                const directory = await prepareKokoroModelDirectory();
+      if (!queue) {
+        throw new Error('TTS playback queue is unavailable.');
+      }
 
-                await initializeKokoro(directory, 4);
+      setState(current => ({
+        ...current,
+        status: 'preparing',
+        error: null,
+      }));
 
-                initializedRef.current = true;
+      try {
+        await queue.start(text, voiceId, speed, title);
+      } catch (error) {
+        const normalized = normalizeError(error);
 
-                setState(current => ({
-                    ...current,
-                    status: 'ready',
-                    error: null,
-                }));
-            })().catch(error => {
-                initializationRef.current = null;
+        setState({
+          status: 'error',
+          currentChunk: 0,
+          totalChunks: 0,
+          currentChunkStartWordIndex: -1,
+          currentChunkEndWordIndex: -1,
+          currentChunkText: '',
+          narrationText: '',
+          error: normalized.message,
+        });
 
-                const normalized = normalizeError(error);
+        throw normalized;
+      }
+    },
+    [initialize],
+  );
 
-                setState({
-                    status: 'error',
-                    currentChunk: 0,
-                    totalChunks: 0,
-                    currentChunkStartWordIndex: -1,
-                    currentChunkEndWordIndex: -1,
-                    currentChunkText: '',
-                    narrationText: '',
-                    error: normalized.message,
-                });
+  const pause = useCallback(async (): Promise<void> => {
+    const position = await queueRef.current?.pause();
 
-                throw normalized;
-            });
-        }
+    if (position == null) {
+      return;
+    }
 
-        await initializationRef.current;
-    }, []);
+    setState(current => ({
+      ...current,
+      status: 'paused',
+    }));
+  }, []);
 
-    const read = useCallback(
-        async (
-            text: string,
-            voiceId = 1,
-            speed = 1,
-        ): Promise<void> => {
-            setState(current => ({
-                ...current,
-                narrationText: text,
-                currentChunkText: '',
-                error: null,
-            }));
-            await initialize();
+  const resume = useCallback(async (): Promise<void> => {
+    const position = await queueRef.current?.resume();
 
-            const queue = queueRef.current;
+    if (position == null) {
+      return;
+    }
 
-            if (!queue) {
-                throw new Error('TTS playback queue is unavailable.');
-            }
+    setState(current => ({
+      ...current,
+      status: 'playing',
+    }));
+  }, []);
 
-            setState(current => ({
-                ...current,
-                status: 'preparing',
-                error: null,
-            }));
+  const previousChunk = useCallback(async (): Promise<void> => {
+    await queueRef.current?.skipBy(-1);
+  }, []);
 
-            try {
-                await queue.start(text, voiceId, speed);
-            } catch (error) {
-                const normalized = normalizeError(error);
+  const nextChunk = useCallback(async (): Promise<void> => {
+    await queueRef.current?.skipBy(1);
+  }, []);
 
-                setState({
-                status: 'error',
-                currentChunk: 0,
-                totalChunks: 0,
-                currentChunkStartWordIndex: -1,
-                currentChunkEndWordIndex: -1,
-                currentChunkText: '',
-                narrationText: '',
-                error: normalized.message,
-                });
+  const stop = useCallback((): void => {
+    queueRef.current?.stop();
 
-                throw normalized;
-            }
-        },
-        [initialize],
-    );
+    setState(current => ({
+      ...current,
+      status: initializedRef.current ? 'ready' : 'idle',
+      currentChunk: 0,
+      totalChunks: 0,
+      currentChunkStartWordIndex: -1,
+      currentChunkEndWordIndex: -1,
+      currentChunkText: '',
+      narrationText: '',
+      error: null,
+    }));
+  }, []);
 
-    const pause = useCallback(async (): Promise<void> => {
-        const position = await queueRef.current?.pause();
+  const value = useMemo<KokoroTtsContextValue>(
+    () => ({
+      ...state,
+      initialize,
+      read,
+      pause,
+      resume,
+      previousChunk,
+      nextChunk,
+      stop,
+    }),
+    [initialize, nextChunk, pause, previousChunk, read, resume, state, stop],
+  );
 
-        if (position == null) {
-            return;
-        }
-
-        setState(current => ({
-            ...current,
-            status: 'paused',
-        }));
-    }, []);
-
-    const resume = useCallback(async (): Promise<void> => {
-        const position = await queueRef.current?.resume();
-
-        if (position == null) {
-            return;
-        }
-
-        setState(current => ({
-            ...current,
-            status: 'playing',
-        }));
-    }, []);
-
-    const previousChunk = useCallback(async (): Promise<void> => {
-        await queueRef.current?.skipBy(-1);
-    }, []);
-
-    const nextChunk = useCallback(async (): Promise<void> => {
-        await queueRef.current?.skipBy(1);
-    }, []);
-
-    const stop = useCallback((): void => {
-        queueRef.current?.stop();
-
-        setState(current => ({
-            ...current,
-            status: initializedRef.current ? 'ready' : 'idle',
-            currentChunk: 0,
-            totalChunks: 0,
-            currentChunkStartWordIndex: -1,
-            currentChunkEndWordIndex: -1,
-            currentChunkText: '',
-            narrationText: '',
-            error: null,
-        }));
-    }, []);
-
-    const value = useMemo<KokoroTtsContextValue>(
-        () => ({
-            ...state,
-            initialize,
-            read,
-            pause,
-            resume,
-            previousChunk,
-            nextChunk,
-            stop,
-        }),
-        [initialize, nextChunk, pause, previousChunk, read, resume, state, stop],
-    );
-
-    return (
-        <kokoroTtsContext.Provider value={value}>
-            {children}
-        </kokoroTtsContext.Provider>
-    );
+  return (
+    <kokoroTtsContext.Provider value={value}>
+      {children}
+    </kokoroTtsContext.Provider>
+  );
 }
 
 export function useKokoroTts(): KokoroTtsContextValue {
-    const context = useContext(kokoroTtsContext);
+  const context = useContext(kokoroTtsContext);
 
-    if (!context) {
-        throw new Error(
-            'useKokoroTts must be used inside KokoroTtsProvider.',
-        );
-    }
+  if (!context) {
+    throw new Error('useKokoroTts must be used inside KokoroTtsProvider.');
+  }
 
-    return context;
+  return context;
 }

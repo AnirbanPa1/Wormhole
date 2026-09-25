@@ -1,5 +1,5 @@
 import React, {useCallback, useEffect, useState} from 'react';
-import {Alert, BackHandler, Modal, StatusBar, StyleSheet} from 'react-native';
+import {Alert, BackHandler, StatusBar, StyleSheet, View} from 'react-native';
 import {
   errorCodes,
   isErrorWithCode,
@@ -195,16 +195,33 @@ function App(): React.JSX.Element {
           {view === 'tts' ? (
             <TtsSpikeScreen />
           ) : selected ? (
-            <ReaderScreen
-              document={selected}
-              onBack={() => {
-                setImmersiveOpen(false);
-                setSelected(null);
-              }}
-              onOpenImmersive={() => setImmersiveOpen(true)}
-              onPageChange={page => saveProgress(selected.id, page)}
-              onTextLayerReady={markTextLayerReady}
-            />
+            <View style={styles.readerStack}>
+              <View
+                accessibilityElementsHidden={immersiveOpen}
+                importantForAccessibility={
+                  immersiveOpen ? 'no-hide-descendants' : 'auto'
+                }
+                style={styles.readerStack}>
+                <ReaderScreen
+                  document={selected}
+                  onBack={() => {
+                    setImmersiveOpen(false);
+                    setSelected(null);
+                  }}
+                  onOpenImmersive={() => setImmersiveOpen(true)}
+                  onPageChange={page => saveProgress(selected.id, page)}
+                  onTextLayerReady={markTextLayerReady}
+                />
+              </View>
+              {immersiveOpen && (
+                <View style={styles.immersiveLayer}>
+                  <ImmersiveListeningScreen
+                    document={selected}
+                    onClose={() => setImmersiveOpen(false)}
+                  />
+                </View>
+              )}
+            </View>
           ) : view === 'saved' ? (
             <SavedWordsScreen onNavigate={navigate} />
           ) : view === 'profile' ? (
@@ -227,18 +244,6 @@ function App(): React.JSX.Element {
               onNavigate={navigate}
             />
           )}
-          <Modal
-            animationType="slide"
-            onRequestClose={() => setImmersiveOpen(false)}
-            statusBarTranslucent={false}
-            visible={immersiveOpen && selected !== null}>
-            {selected && (
-              <ImmersiveListeningScreen
-                document={selected}
-                onClose={() => setImmersiveOpen(false)}
-              />
-            )}
-          </Modal>
           </KokoroTtsProvider>
         </AppSettingsProvider>
       </SafeAreaProvider>
@@ -248,6 +253,16 @@ function App(): React.JSX.Element {
 
 const styles = StyleSheet.create({
   root: {flex: 1},
+  readerStack: {flex: 1},
+  immersiveLayer: {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    bottom: 0,
+    left: 0,
+    zIndex: 20,
+    elevation: 20,
+  },
 });
 
 export default App;

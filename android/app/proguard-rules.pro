@@ -8,3 +8,15 @@
 #   http://developer.android.com/guide/developing/tools/proguard.html
 
 # Add any project specific keep options here:
+
+# sherpa-onnx binds these Kotlin/Java classes to native functions by their
+# fully-qualified JNI names. Its bundled AAR currently contains no consumer
+# ProGuard rules, so keep the bridge stable in minified release builds.
+-keep class com.k2fsa.sherpa.onnx.** { *; }
+-keepclassmembers,includedescriptorclasses class * {
+    native <methods>;
+}
+
+# React Native discovers this package/module through generated registration
+# code. Keep the small Wormhole bridge intact along with its ReactMethod API.
+-keep class com.wormhole.tts.** { *; }
