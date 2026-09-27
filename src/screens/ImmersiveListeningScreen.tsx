@@ -15,7 +15,10 @@ import {SafeAreaView} from 'react-native-safe-area-context';
 import {KOKORO_VOICES, useAppSettings} from '../features/settings/AppSettingsProvider';
 import {getPlaybackPosition} from '../features/tts/kokoro-client';
 import {useKokoroTts} from '../features/tts/KokoroTtsProvider';
-import {chunkTextForSpeech} from '../features/tts/tts-text-chunker';
+import {
+  chunkTextForSpeech,
+  NARRATION_CHUNK_MAX_CHARACTERS,
+} from '../features/tts/tts-text-chunker';
 import type {LibraryDocument} from '../types/library';
 import styles from './ImmersiveListeningScreen.styles';
 
@@ -66,7 +69,10 @@ function ImmersiveListeningScreen({
   const animatedProgress = useRef(new Animated.Value(0)).current;
 
   const chunks = useMemo(
-    () => chunkTextForSpeech(narrationText, {maxCharacters: 160}),
+    () =>
+      chunkTextForSpeech(narrationText, {
+        maxCharacters: NARRATION_CHUNK_MAX_CHARACTERS,
+      }),
     [narrationText],
   );
   const activeIndex = Math.max(0, currentChunk - 1);

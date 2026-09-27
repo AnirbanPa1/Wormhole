@@ -19,7 +19,6 @@ import {
 import {
   downloadKokoroModel,
   getKokoroModelStatus,
-  requestKokoroDownloadNotificationPermission,
   subscribeToKokoroModelDownloadProgress,
   type KokoroModelDownloadProgress,
   type KokoroModelStatus,
@@ -49,8 +48,11 @@ function SettingsScreen({onNavigate}: SettingsScreenProps): React.JSX.Element {
   const {status: ttsStatus, initialize} = useKokoroTts();
   const [modelStatus, setModelStatus] = useState<KokoroModelStatus | null>(null);
   const [modelBusy, setModelBusy] = useState(false);
+  const [voiceDropdownOpen, setVoiceDropdownOpen] = useState(false);
   const [downloadProgress, setDownloadProgress] =
     useState<KokoroModelDownloadProgress | null>(null);
+  const selectedVoice =
+    KOKORO_VOICES.find(voice => voice.id === voiceId) ?? KOKORO_VOICES[0];
 
   const refreshModelStatus = useCallback(() => {
     getKokoroModelStatus()
@@ -78,14 +80,6 @@ function SettingsScreen({onNavigate}: SettingsScreenProps): React.JSX.Element {
     setModelBusy(true);
     setDownloadProgress(null);
     try {
-      if (!modelStatus?.installed) {
-        const notificationsAllowed =
-          await requestKokoroDownloadNotificationPermission();
-        if (!notificationsAllowed) {
-          return;
-        }
-      }
-
       const nextStatus = modelStatus?.installed
         ? modelStatus
         : await downloadKokoroModel();
@@ -208,35 +202,86 @@ function SettingsScreen({onNavigate}: SettingsScreenProps): React.JSX.Element {
 
         <Text style={[styles.sectionLabel, darkMode && styles.mutedDark]}>VOICE</Text>
         <View style={[styles.card, darkMode && styles.cardDark]}>
-          <View style={styles.choiceGrid}>
-            {KOKORO_VOICES.map(voice => (
-              <Pressable
-                key={voice.id}
-                onPress={() => setVoiceId(voice.id)}
-                style={[
-                  styles.choice,
-                  darkMode && styles.choiceDark,
-                  voiceId === voice.id && styles.choiceActive,
-                ]}>
-                <Text
-                  style={[
-                    styles.choiceTitle,
-                    darkMode && voiceId !== voice.id && styles.textDark,
-                    voiceId === voice.id && styles.choiceTextActive,
-                  ]}>
-                  {voice.name}
-                </Text>
-                <Text
-                  style={[
-                    styles.choiceCode,
-                    darkMode && voiceId !== voice.id && styles.mutedDark,
-                    voiceId === voice.id && styles.choiceTextActive,
-                  ]}>
-                  {voice.code}
-                </Text>
-              </Pressable>
-            ))}
-          </View>
+          <Pressable
+            accessibilityLabel={`Voice, ${selectedVoice.name}`}
+            accessibilityRole="button"
+            accessibilityState={{expanded: voiceDropdownOpen}}
+            onPress={() => setVoiceDropdownOpen(open => !open)}
+            style={[
+              styles.voiceSelect,
+              darkMode && styles.voiceSelectDark,
+              voiceDropdownOpen && styles.voiceSelectOpen,
+            ]}>
+            <View style={styles.flex}>
+              <Text style={[styles.voiceName, darkMode && styles.textDark]}>
+                {selectedVoice.name}
+              </Text>
+              <Text style={[styles.voiceCode, darkMode && styles.mutedDark]}>
+                {selectedVoice.code}
+              </Text>
+            </View>
+            <Text
+              style={[styles.voiceChevron, darkMode && styles.textDark]}
+              accessible={false}>
+              {voiceDropdownOpen ? '▲' : '▼'}
+            </Text>
+          </Pressable>
+
+          {voiceDropdownOpen && (
+            <ScrollView
+              nestedScrollEnabled
+              showsVerticalScrollIndicator
+              style={[
+                styles.voiceMenu,
+                darkMode && styles.voiceMenuDark,
+              ]}>
+              {KOKORO_VOICES.map((voice, index) => {
+                const selected = voice.id === voiceId;
+                return (
+                  <Pressable
+                    accessibilityRole="menuitem"
+                    accessibilityState={{selected}}
+                    key={voice.id}
+                    onPress={() => {
+                      setVoiceId(voice.id);
+                      setVoiceDropdownOpen(false);
+                    }}
+                    style={[
+                      styles.voiceOption,
+                      darkMode && styles.voiceOptionDark,
+                      index < KOKORO_VOICES.length - 1 &&
+                        styles.voiceOptionBorder,
+                      darkMode &&
+                        index < KOKORO_VOICES.length - 1 &&
+                        styles.voiceOptionBorderDark,
+                      selected && styles.voiceOptionSelected,
+                    ]}>
+                    <View style={styles.flex}>
+                      <Text
+                        style={[
+                          styles.voiceName,
+                          darkMode && !selected && styles.textDark,
+                        ]}>
+                        {voice.name}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.voiceCode,
+                          darkMode && !selected && styles.mutedDark,
+                        ]}>
+                        {voice.code}
+                      </Text>
+                    </View>
+                    {selected && (
+                      <Text style={styles.voiceCheck} accessible={false}>
+                        ✓
+                      </Text>
+                    )}
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          )}
         </View>
 
         <Text style={[styles.sectionLabel, darkMode && styles.mutedDark]}>READING SPEED</Text>

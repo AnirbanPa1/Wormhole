@@ -50,8 +50,6 @@ import { useKokoroTts } from '../features/tts/KokoroTtsProvider';
 import {
   downloadKokoroModel,
   isKokoroModelMissingError,
-  requestKokoroDownloadNotificationPermission,
-  requestKokoroNotificationPermission,
 } from '../features/tts/kokoro-client';
 import { useAppSettings } from '../features/settings/AppSettingsProvider';
 import { X } from 'lucide-react-native';
@@ -301,19 +299,12 @@ function ReaderScreen({
         return;
       }
 
-      await requestKokoroNotificationPermission();
       await read(textToRead, voiceId, speed, document.title);
       if (immersiveMode) {
         onOpenImmersive();
       }
     } catch (error) {
       if (isKokoroModelMissingError(error)) {
-        const notificationsAllowed =
-          await requestKokoroDownloadNotificationPermission();
-        if (!notificationsAllowed) {
-          return;
-        }
-
         setModelInstalling(true);
         try {
           await downloadKokoroModel();

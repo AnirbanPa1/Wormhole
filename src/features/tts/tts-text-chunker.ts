@@ -1,4 +1,5 @@
 const DEFAULT_MAX_CHARACTERS = 240;
+export const NARRATION_CHUNK_MAX_CHARACTERS = 160;
 const SENTENCE_PATTERN = /[^.!?]+(?:[.!?]+["'”’)\]]*|$)/g;
 
 export type TtsTextChunk = {

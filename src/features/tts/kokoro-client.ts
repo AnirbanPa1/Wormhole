@@ -1,9 +1,4 @@
-import {
-  NativeEventEmitter,
-  NativeModules,
-  PermissionsAndroid,
-  Platform,
-} from 'react-native';
+import {NativeEventEmitter, NativeModules} from 'react-native';
 
 export type KokoroModelInfo = {
   modelPath: string;
@@ -24,6 +19,22 @@ export type KokoroGenerationInfo = {
 
 export type KokoroPlaybackFinishedEvent = {
   filePath: string;
+};
+
+export type KokoroStreamChunkStartedEvent = {
+  sessionId: number;
+  index: number;
+  total: number;
+  text: string;
+};
+
+export type KokoroStreamCompletedEvent = {
+  sessionId: number;
+};
+
+export type KokoroStreamErrorEvent = {
+  sessionId: number;
+  message: string;
 };
 
 export type KokoroMediaControlEvent = {
@@ -53,6 +64,9 @@ type KokoroNativeEventMap = {
   KokoroPlaybackFinished: readonly [event: KokoroPlaybackFinishedEvent];
   KokoroModelDownloadProgress: readonly [event: KokoroModelDownloadProgress];
   KokoroMediaControl: readonly [event: KokoroMediaControlEvent];
+  KokoroStreamChunkStarted: readonly [event: KokoroStreamChunkStartedEvent];
+  KokoroStreamCompleted: readonly [event: KokoroStreamCompletedEvent];
+  KokoroStreamError: readonly [event: KokoroStreamErrorEvent];
 };
 
 type KokoroTtsNativeModule = {
@@ -74,6 +88,14 @@ type KokoroTtsNativeModule = {
   downloadModel(): Promise<KokoroModelStatus>;
 
   play(filePath: string, title: string, subtitle: string): Promise<number>;
+
+  startStream(
+    chunks: string[],
+    startIndex: number,
+    voiceId: number,
+    speed: number,
+    title: string,
+  ): Promise<number>;
 
   stop(keepNotification: boolean): void;
 
@@ -132,20 +154,6 @@ export function downloadKokoroModel(): Promise<KokoroModelStatus> {
   return getNativeModules().downloadModel();
 }
 
-export async function requestKokoroNotificationPermission(): Promise<boolean> {
-  if (Platform.OS !== 'android' || Number(Platform.Version) < 33) {
-    return true;
-  }
-
-  const result = await PermissionsAndroid.request(
-    PermissionsAndroid.PERMISSIONS.POST_NOTIFICATIONS,
-  );
-  return result === PermissionsAndroid.RESULTS.GRANTED;
-}
-
-export const requestKokoroDownloadNotificationPermission =
-  requestKokoroNotificationPermission;
-
 export function isKokoroModelMissingError(error: unknown): boolean {
   if (typeof error !== 'object' || error === null) {
     return false;
@@ -202,6 +210,22 @@ export function playSpeech(
   return getNativeModules().play(filePath, title, subtitle);
 }
 
+export function startStreamingSpeech(
+  chunks: string[],
+  startIndex: number,
+  voiceId = 0,
+  speed = 1,
+  title = 'Wormhole narration',
+): Promise<number> {
+  return getNativeModules().startStream(
+    chunks,
+    startIndex,
+    voiceId,
+    speed,
+    title,
+  );
+}
+
 export function stopSpeech(keepNotification = false): void {
   getNativeModules().stop(keepNotification);
 }
@@ -241,5 +265,35 @@ export function subscribeToKokoroMediaControl(
   const nativeModule = getNativeModules();
   const emitter = new NativeEventEmitter<KokoroNativeEventMap>(nativeModule);
   const subscription = emitter.addListener('KokoroMediaControl', listener);
+  return () => subscription.remove();
+}
+
+export function subscribeToStreamChunkStarted(
+  listener: (event: KokoroStreamChunkStartedEvent) => void,
+): () => void {
+  const nativeModule = getNativeModules();
+  const emitter = new NativeEventEmitter<KokoroNativeEventMap>(nativeModule);
+  const subscription = emitter.addListener(
+    'KokoroStreamChunkStarted',
+    listener,
+  );
+  return () => subscription.remove();
+}
+
+export function subscribeToStreamCompleted(
+  listener: (event: KokoroStreamCompletedEvent) => void,
+): () => void {
+  const nativeModule = getNativeModules();
+  const emitter = new NativeEventEmitter<KokoroNativeEventMap>(nativeModule);
+  const subscription = emitter.addListener('KokoroStreamCompleted', listener);
+  return () => subscription.remove();
+}
+
+export function subscribeToStreamError(
+  listener: (event: KokoroStreamErrorEvent) => void,
+): () => void {
+  const nativeModule = getNativeModules();
+  const emitter = new NativeEventEmitter<KokoroNativeEventMap>(nativeModule);
+  const subscription = emitter.addListener('KokoroStreamError', listener);
   return () => subscription.remove();
 }

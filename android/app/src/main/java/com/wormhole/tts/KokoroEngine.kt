@@ -134,8 +134,8 @@ class KokoroEngine {
          *
          * Use it when present.
          */
-        findLexicon(directory)?.let { lexicon ->
-            kokoroConfig.lexicon = lexicon.absolutePath
+        findLexicons(directory)?.let { lexicons ->
+            kokoroConfig.lexicon = lexicons
         }
 
         val modelConfig = OfflineTtsModelConfig().apply {
@@ -278,15 +278,27 @@ class KokoroEngine {
      * Different Kokoro packs use slightly different lexicon names,
      * e.g. lexicon-us-en.txt.
      */
-    private fun findLexicon(
+    private fun findLexicons(
         directory: File,
-    ): File? {
-        return directory
+    ): String? {
+        val lexicons = directory
             .listFiles()
-            ?.firstOrNull { file ->
+            ?.filter { file ->
                 file.isFile &&
                     file.name.startsWith("lexicon") &&
                     file.name.endsWith(".txt")
             }
+            .orEmpty()
+
+        if (lexicons.isEmpty()) {
+            return null
+        }
+
+        val preferredNames = listOf("lexicon-us-en.txt", "lexicon-zh.txt")
+        val preferred = preferredNames.mapNotNull { name ->
+            lexicons.firstOrNull { it.name == name }
+        }
+        val selected = preferred.ifEmpty { listOf(lexicons.first()) }
+        return selected.joinToString(",") { it.absolutePath }
     }
 }

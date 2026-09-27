@@ -1,75 +1,86 @@
-const mockGenerations: Array<{
-  resolve: (value: {
-    filePath: string;
-    sampleRate: number;
-    generationMs: number;
-    durationMs: number;
-    realTimeFactor: number;
-    sizeBytes: number;
-  }) => void;
-}> = [];
+type StreamEvent = {
+  sessionId: number;
+  index: number;
+  total: number;
+  text: string;
+};
+
+let chunkListener: ((event: StreamEvent) => void) | undefined;
+let completeListener: ((event: {sessionId: number}) => void) | undefined;
 
 jest.mock('../src/features/tts/kokoro-client', () => ({
   pauseSpeech: jest.fn(() => Promise.resolve(0)),
-  playSpeech: jest.fn(() => Promise.resolve(1000)),
   resumeSpeech: jest.fn(() => Promise.resolve(0)),
+  startStreamingSpeech: jest.fn(() => Promise.resolve(41)),
   stopSpeech: jest.fn(),
-  synthesizeSpeech: jest.fn(
-    () =>
-      new Promise(resolve => {
-        mockGenerations.push({ resolve });
-      }),
-  ),
-  waitForPlaybackCompletion: jest.fn(() => new Promise(() => undefined)),
+  subscribeToStreamChunkStarted: jest.fn(listener => {
+    chunkListener = listener;
+    return jest.fn();
+  }),
+  subscribeToStreamCompleted: jest.fn(listener => {
+    completeListener = listener;
+    return jest.fn();
+  }),
+  subscribeToStreamError: jest.fn(() => jest.fn()),
 }));
 
-import {
-  playSpeech,
-  synthesizeSpeech,
-} from '../src/features/tts/kokoro-client';
-import { TtsPlaybackQueue } from '../src/features/tts/tts-playback-queue';
+import {startStreamingSpeech} from '../src/features/tts/kokoro-client';
+import {TtsPlaybackQueue} from '../src/features/tts/tts-playback-queue';
 
-const mockPlaySpeech = playSpeech as jest.MockedFunction<typeof playSpeech>;
-const mockSynthesizeSpeech = synthesizeSpeech as jest.MockedFunction<
-  typeof synthesizeSpeech
->;
+const mockStartStreamingSpeech =
+  startStreamingSpeech as jest.MockedFunction<typeof startStreamingSpeech>;
 
-describe('TtsPlaybackQueue prefetching', () => {
+describe('TtsPlaybackQueue native streaming', () => {
   beforeEach(() => {
-    mockGenerations.length = 0;
     jest.clearAllMocks();
+    chunkListener = undefined;
+    completeListener = undefined;
   });
 
-  it('starts playback after the first passage while later passages are pending', async () => {
-    const queue = new TtsPlaybackQueue();
+  it('sends every passage to one native streaming session', async () => {
+    const onChunkChange = jest.fn();
+    const queue = new TtsPlaybackQueue({onChunkChange});
     const text = [
-      'First passage contains enough words to occupy its own generated speech chunk and ends here.',
-      'Second passage also contains enough words to remain queued for synthesis in the background.',
-      'Third passage verifies that the full lookahead window is submitted before playback begins.',
+      'First passage contains enough words to become generated audio and ends here.',
+      'Second passage remains part of the same continuous native playback stream.',
+      'Third passage verifies that all text is submitted in a single request.',
     ].join(' ');
 
-    const started = queue.start(text);
+    await queue.start(text, 2, 1.1, 'Test book');
 
-    expect(mockSynthesizeSpeech).toHaveBeenCalledTimes(3);
-    expect(mockPlaySpeech).not.toHaveBeenCalled();
+    expect(mockStartStreamingSpeech).toHaveBeenCalledTimes(1);
+    const [chunks, startIndex, voiceId, speed, title] =
+      mockStartStreamingSpeech.mock.calls[0];
+    expect(chunks.length).toBeGreaterThan(1);
+    expect(startIndex).toBe(0);
+    expect(voiceId).toBe(2);
+    expect(speed).toBe(1.1);
+    expect(title).toBe('Test book');
 
-    mockGenerations[0].resolve({
-      filePath: '/cache/first.wav',
-      sampleRate: 24000,
-      generationMs: 900,
-      durationMs: 1000,
-      realTimeFactor: 0.9,
-      sizeBytes: 48000,
+    chunkListener?.({
+      sessionId: 41,
+      index: 0,
+      total: chunks.length,
+      text: chunks[0],
     });
-
-    await started;
-
-    expect(mockPlaySpeech).toHaveBeenCalledTimes(1);
-    expect(mockPlaySpeech).toHaveBeenCalledWith(
-      '/cache/first.wav',
-      'Wormhole narration',
-      expect.stringContaining('Passage 1 of 3'),
+    expect(onChunkChange).toHaveBeenCalledWith(
+      0,
+      chunks.length,
+      0,
+      expect.any(Number),
+      chunks[0],
     );
-    expect(mockGenerations).toHaveLength(3);
+  });
+
+  it('ignores completion events from an obsolete native session', async () => {
+    const onComplete = jest.fn();
+    const queue = new TtsPlaybackQueue({onComplete});
+    await queue.start('A short sentence that can be narrated.');
+
+    completeListener?.({sessionId: 40});
+    expect(onComplete).not.toHaveBeenCalled();
+
+    completeListener?.({sessionId: 41});
+    expect(onComplete).toHaveBeenCalledTimes(1);
   });
 });

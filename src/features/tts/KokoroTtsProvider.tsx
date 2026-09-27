@@ -203,7 +203,7 @@ export function KokoroTtsProvider({
   const read = useCallback(
     async (
       text: string,
-      voiceId = 1,
+      voiceId = 2,
       speed = 1,
       title = 'Wormhole narration',
     ): Promise<void> => {
