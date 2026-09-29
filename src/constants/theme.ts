@@ -33,3 +33,14 @@ export const colors = {
   darkInk: '#F8F3EC',
   darkMuted: '#AFA79D',
 };
+
+export const fonts = {
+  display: 'Pulang',
+};
+
+export const goldGradient = {
+  start: '#FFF2A6',
+  middle: '#F5C84F',
+  deep: '#D9951E',
+  end: '#FFD968',
+};

@@ -10,7 +10,7 @@ const styles = StyleSheet.create({
   header: {paddingHorizontal: 20, paddingTop: 20, paddingBottom: 14, flexDirection: 'row', alignItems: 'center'},
   headerCopy: {flex: 1},
   eyebrow: {fontSize: 10, letterSpacing: 2, color: colors.accent, fontWeight: '900'},
-  title: {fontSize: 34, lineHeight: 40, color: colors.ink, fontFamily: 'serif', fontWeight: '700'},
+  title: {fontSize: 40, lineHeight: 46, color: colors.ink, fontFamily: 'serif', fontWeight: '700'},
   subtitle: {fontSize: 12, color: colors.muted, marginTop: 2},
   clearButton: {height: 38, paddingHorizontal: 14, borderRadius: 13, backgroundColor: colors.ink, borderWidth: 1, borderColor: colors.ink, alignItems: 'center', justifyContent: 'center'},
   clearButtonDark: {backgroundColor: colors.darkSurface, borderColor: colors.focus},

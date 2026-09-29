@@ -10,6 +10,7 @@ import {
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import BottomNavigation, {type MainTab} from '../components/BottomNavigation';
+import GoldGradientBackground from '../components/GoldGradientBackground';
 import {colors} from '../constants/theme';
 import {
   KOKORO_VOICES,
@@ -28,13 +29,17 @@ import styles from './SettingsScreen.styles';
 
 type SettingsScreenProps = {
   onNavigate(tab: MainTab): void;
+  onShowGettingStarted(): void;
 };
 
 function formatMegabytes(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(0)} MB`;
 }
 
-function SettingsScreen({onNavigate}: SettingsScreenProps): React.JSX.Element {
+function SettingsScreen({
+  onNavigate,
+  onShowGettingStarted,
+}: SettingsScreenProps): React.JSX.Element {
   const {
     voiceId,
     speed,
@@ -132,6 +137,7 @@ function SettingsScreen({onNavigate}: SettingsScreenProps): React.JSX.Element {
               darkMode && styles.primaryButtonDark,
               (modelBusy || ttsStatus === 'initializing') && styles.disabled,
             ]}>
+            {darkMode && <GoldGradientBackground borderRadius={15} />}
             {modelBusy || ttsStatus === 'initializing' ? (
               <View style={styles.busyButtonContent}>
                 <ActivityIndicator
@@ -256,6 +262,7 @@ function SettingsScreen({onNavigate}: SettingsScreenProps): React.JSX.Element {
                         styles.voiceOptionBorderDark,
                       selected && styles.voiceOptionSelected,
                     ]}>
+                    {selected && <GoldGradientBackground borderRadius={12} />}
                     <View style={styles.flex}>
                       <Text
                         style={[
@@ -296,6 +303,9 @@ function SettingsScreen({onNavigate}: SettingsScreenProps): React.JSX.Element {
                   darkMode && styles.choiceDark,
                   speed === option && styles.choiceActive,
                 ]}>
+                {speed === option && (
+                  <GoldGradientBackground borderRadius={12} />
+                )}
                 <Text
                   style={[
                     styles.speedText,
@@ -353,6 +363,28 @@ function SettingsScreen({onNavigate}: SettingsScreenProps): React.JSX.Element {
             Wormhole's app-private storage and remain available offline.
           </Text>
         </View>
+
+        <Text style={[styles.sectionLabel, darkMode && styles.mutedDark]}>
+          HELP
+        </Text>
+        <Pressable
+          accessibilityLabel="View getting started"
+          onPress={onShowGettingStarted}
+          style={({pressed}) => [
+            styles.helpButton,
+            darkMode && styles.helpButtonDark,
+            pressed && styles.helpButtonPressed,
+          ]}>
+          <View style={styles.flex}>
+            <Text style={[styles.cardTitle, darkMode && styles.textDark]}>
+              Getting started
+            </Text>
+            <Text style={[styles.cardCopy, darkMode && styles.mutedDark]}>
+              Review importing, offline narration, and reading tools.
+            </Text>
+          </View>
+          <Text style={styles.helpArrow}>›</Text>
+        </Pressable>
       </ScrollView>
       <BottomNavigation active="settings" onNavigate={onNavigate} />
     </SafeAreaView>

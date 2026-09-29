@@ -137,7 +137,9 @@ export function KokoroTtsProvider({
         return;
       }
       if (event.action === 'previous' || event.action === 'next') {
-        void queue.skipBy(event.action === 'previous' ? -1 : 1);
+        queue
+          .skipBy(event.action === 'previous' ? -1 : 1)
+          .catch(() => undefined);
         return;
       }
       setState(current => ({

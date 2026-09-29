@@ -1,5 +1,5 @@
-import React, {useCallback, useEffect, useState} from 'react';
-import {Alert, BackHandler, StatusBar, StyleSheet, View} from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Alert, BackHandler, StatusBar, StyleSheet, View } from 'react-native';
 import {
   errorCodes,
   isErrorWithCode,
@@ -7,28 +7,39 @@ import {
   pick,
   types,
 } from '@react-native-documents/picker';
-import {GestureHandlerRootView} from 'react-native-gesture-handler';
-import {PdfUtil} from 'react-native-pdf-light';
-import {SafeAreaProvider} from 'react-native-safe-area-context';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { PdfUtil } from 'react-native-pdf-light';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import LibraryScreen from './src/screens/LibraryScreen';
 import ReaderScreen from './src/screens/ReaderScreen';
 import SavedWordsScreen from './src/screens/SavedWordsScreen';
-import {initDictionary} from './src/services/dictionary.service';
-import {loadLibrary, saveLibrary} from './src/storage/library';
-import type {LibraryDocument} from './src/types/library';
-import TtsSpikeScreen from './src/screens/TtsSpikeScreen';
+import { initDictionary } from './src/services/dictionary.service';
+import {
+  loadLibrary,
+  removeImportedPdf,
+  saveLibrary,
+} from './src/storage/library';
+import { removeTextLayer } from './src/storage/text-layers';
+import type { LibraryDocument } from './src/types/library';
 import ProfileScreen from './src/screens/ProfileScreen';
 import SettingsScreen from './src/screens/SettingsScreen';
 import ImmersiveListeningScreen from './src/screens/ImmersiveListeningScreen';
-import type {MainTab} from './src/components/BottomNavigation';
+import GettingStartedScreen from './src/screens/GettingStartedScreen';
+import type { MainTab } from './src/components/BottomNavigation';
+import {
+  recordDocumentOpened,
+  recordReadingProgress,
+} from './src/features/library/library-progress';
+import {
+  completeGettingStarted,
+  hasCompletedGettingStarted,
+} from './src/storage/getting-started';
 
 import { KokoroTtsProvider } from './src/features/tts/KokoroTtsProvider';
 import {
   AppSettingsProvider,
   useAppSettings,
 } from './src/features/settings/AppSettingsProvider';
-
-type AppView = 'library' | 'saved' | 'profile' | 'settings' | 'tts';
 
 function AppStatusBar({
   readerOpen,
@@ -37,7 +48,7 @@ function AppStatusBar({
   readerOpen: boolean;
   immersiveOpen: boolean;
 }): React.JSX.Element {
-  const {darkMode} = useAppSettings();
+  const { darkMode } = useAppSettings();
   return (
     <StatusBar
       barStyle={
@@ -46,8 +57,8 @@ function AppStatusBar({
             ? 'light-content'
             : 'dark-content'
           : readerOpen || darkMode
-            ? 'light-content'
-            : 'dark-content'
+          ? 'light-content'
+          : 'dark-content'
       }
     />
   );
@@ -58,8 +69,12 @@ function App(): React.JSX.Element {
   const [selected, setSelected] = useState<LibraryDocument | null>(null);
   const [loading, setLoading] = useState(true);
   const [importing, setImporting] = useState(false);
-  const [view, setView] = useState<AppView>('library');
+  const [view, setView] = useState<MainTab>('library');
   const [immersiveOpen, setImmersiveOpen] = useState(false);
+  const [onboardingChecked, setOnboardingChecked] = useState(false);
+  const [onboardingOpen, setOnboardingOpen] = useState(false);
+  const documentsRef = useRef<LibraryDocument[]>([]);
+  const librarySaveQueue = useRef<Promise<void>>(Promise.resolve());
 
   const navigate = useCallback((tab: MainTab) => {
     setView(tab);
@@ -82,18 +97,83 @@ function App(): React.JSX.Element {
 
   useEffect(() => {
     loadLibrary()
-      .then(setDocuments)
+      .then(storedDocuments => {
+        documentsRef.current = storedDocuments;
+        setDocuments(storedDocuments);
+      })
       .catch(() => {
-        Alert.alert('Library unavailable', 'Your saved books could not be loaded.');
+        Alert.alert(
+          'Library unavailable',
+          'Your saved books could not be loaded.',
+        );
       })
       .finally(() => setLoading(false));
     initDictionary();
   }, []);
 
-  const persist = useCallback(async (next: LibraryDocument[]) => {
-    setDocuments(next);
-    await saveLibrary(next);
+  useEffect(() => {
+    hasCompletedGettingStarted()
+      .then(completed => setOnboardingOpen(!completed))
+      .catch(() => setOnboardingOpen(true))
+      .finally(() => setOnboardingChecked(true));
   }, []);
+
+  const finishGettingStarted = useCallback(async () => {
+    await completeGettingStarted();
+    setOnboardingOpen(false);
+  }, []);
+
+  const enqueueLibrarySave = useCallback((next: LibraryDocument[]) => {
+    const pendingSave = librarySaveQueue.current
+      .catch(() => undefined)
+      .then(() => saveLibrary(next));
+    librarySaveQueue.current = pendingSave.catch(() => undefined);
+    return pendingSave;
+  }, []);
+
+  const persist = useCallback(
+    async (next: LibraryDocument[]) => {
+      documentsRef.current = next;
+      setDocuments(next);
+      await enqueueLibrarySave(next);
+    },
+    [enqueueLibrarySave],
+  );
+
+  const updateDocument = useCallback(
+    (
+      id: string,
+      update: (document: LibraryDocument) => LibraryDocument,
+      showSaveError = false,
+    ): LibraryDocument | null => {
+      let updatedDocument: LibraryDocument | null = null;
+      const next = documentsRef.current.map(document => {
+        if (document.id !== id) {
+          return document;
+        }
+        updatedDocument = update(document);
+        return updatedDocument;
+      });
+
+      if (!updatedDocument) {
+        return null;
+      }
+
+      documentsRef.current = next;
+      setDocuments(next);
+      setSelected(current => (current?.id === id ? updatedDocument : current));
+      enqueueLibrarySave(next).catch(() => {
+        if (showSaveError) {
+          Alert.alert(
+            'Progress not saved',
+            'Wormhole could not save this page.',
+          );
+        }
+      });
+      return updatedDocument;
+    },
+    [enqueueLibrarySave],
+  );
 
   const importPdf = useCallback(async () => {
     if (importing) {
@@ -117,7 +197,7 @@ function App(): React.JSX.Element {
         '_',
       );
       const [copy] = await keepLocalCopy({
-        files: [{uri: picked.uri, fileName: `${Date.now()}-${safeName}`}],
+        files: [{ uri: picked.uri, fileName: `${Date.now()}-${safeName}` }],
         destination: 'documentDirectory',
       });
 
@@ -137,7 +217,7 @@ function App(): React.JSX.Element {
         hasTextLayer: false,
       };
 
-      await persist([document, ...documents]);
+      await persist([document, ...documentsRef.current]);
       setSelected(document);
     } catch (error) {
       if (
@@ -153,97 +233,123 @@ function App(): React.JSX.Element {
     } finally {
       setImporting(false);
     }
-  }, [documents, importing, persist]);
+  }, [importing, persist]);
 
-  const saveProgress = useCallback((id: string, currentPage: number) => {
-    setDocuments(current => {
-      const next = current.map(document =>
-        document.id === id ? {...document, currentPage} : document,
+  const saveProgress = useCallback(
+    (id: string, currentPage: number) => {
+      const readAt = new Date().toISOString();
+      updateDocument(
+        id,
+        document => recordReadingProgress(document, currentPage, readAt),
+        true,
       );
-      saveLibrary(next).catch(() => {
-        Alert.alert('Progress not saved', 'Wormhole could not save this page.');
-      });
-      return next;
-    });
-    setSelected(current =>
-      current?.id === id ? {...current, currentPage} : current,
-    );
-  }, []);
+    },
+    [updateDocument],
+  );
 
-  const markTextLayerReady = useCallback((id: string) => {
-    setDocuments(current => {
-      const next = current.map(document =>
-        document.id === id ? {...document, hasTextLayer: true} : document,
+  const openDocument = useCallback(
+    (document: LibraryDocument) => {
+      setImmersiveOpen(false);
+      const openedAt = new Date().toISOString();
+      const updated = updateDocument(
+        document.id,
+        current => recordDocumentOpened(current, openedAt),
+        true,
       );
-      saveLibrary(next).catch(() => undefined);
-      return next;
-    });
-    setSelected(current =>
-      current?.id === id ? {...current, hasTextLayer: true} : current,
-    );
-  }, []);
+      setSelected(updated ?? recordDocumentOpened(document, openedAt));
+    },
+    [updateDocument],
+  );
+
+  const markTextLayerReady = useCallback(
+    (id: string) => {
+      updateDocument(id, document => ({ ...document, hasTextLayer: true }));
+    },
+    [updateDocument],
+  );
+
+  const removeBook = useCallback(
+    async (id: string) => {
+      const document = documentsRef.current.find(item => item.id === id);
+      if (!document) {
+        return;
+      }
+
+      const next = documentsRef.current.filter(item => item.id !== id);
+      await persist(next);
+      await Promise.all([
+        removeImportedPdf(document),
+        removeTextLayer(document.id),
+      ]);
+    },
+    [persist],
+  );
 
   return (
     <GestureHandlerRootView style={styles.root}>
       <SafeAreaProvider>
         <AppSettingsProvider>
           <KokoroTtsProvider>
-          <AppStatusBar
-            immersiveOpen={immersiveOpen}
-            readerOpen={selected !== null}
-          />
-          {view === 'tts' ? (
-            <TtsSpikeScreen />
-          ) : selected ? (
-            <View style={styles.readerStack}>
-              <View
-                accessibilityElementsHidden={immersiveOpen}
-                importantForAccessibility={
-                  immersiveOpen ? 'no-hide-descendants' : 'auto'
-                }
-                style={styles.readerStack}>
-                <ReaderScreen
-                  document={selected}
-                  onBack={() => {
-                    setImmersiveOpen(false);
-                    setSelected(null);
-                  }}
-                  onOpenImmersive={() => setImmersiveOpen(true)}
-                  onPageChange={page => saveProgress(selected.id, page)}
-                  onTextLayerReady={markTextLayerReady}
-                />
-              </View>
-              {immersiveOpen && (
-                <View style={styles.immersiveLayer}>
-                  <ImmersiveListeningScreen
+            <AppStatusBar
+              immersiveOpen={immersiveOpen}
+              readerOpen={selected !== null}
+            />
+            {!onboardingChecked ? (
+              <View style={styles.bootScreen} />
+            ) : onboardingOpen ? (
+              <GettingStartedScreen onFinish={finishGettingStarted} />
+            ) : selected ? (
+              <View style={styles.readerStack}>
+                <View
+                  accessibilityElementsHidden={immersiveOpen}
+                  importantForAccessibility={
+                    immersiveOpen ? 'no-hide-descendants' : 'auto'
+                  }
+                  style={styles.readerStack}
+                >
+                  <ReaderScreen
                     document={selected}
-                    onClose={() => setImmersiveOpen(false)}
+                    onBack={() => {
+                      setImmersiveOpen(false);
+                      setSelected(null);
+                    }}
+                    onOpenImmersive={() => setImmersiveOpen(true)}
+                    onPageChange={page => saveProgress(selected.id, page)}
+                    onTextLayerReady={markTextLayerReady}
                   />
                 </View>
-              )}
-            </View>
-          ) : view === 'saved' ? (
-            <SavedWordsScreen onNavigate={navigate} />
-          ) : view === 'profile' ? (
-            <ProfileScreen
-              bookCount={documents.length}
-              onNavigate={navigate}
-            />
-          ) : view === 'settings' ? (
-            <SettingsScreen onNavigate={navigate} />
-          ) : (
-            <LibraryScreen
-              documents={documents}
-              loading={loading}
-              importing={importing}
-              onImport={importPdf}
-              onOpen={document => {
-                setImmersiveOpen(false);
-                setSelected(document);
-              }}
-              onNavigate={navigate}
-            />
-          )}
+                {immersiveOpen && (
+                  <View style={styles.immersiveLayer}>
+                    <ImmersiveListeningScreen
+                      document={selected}
+                      onClose={() => setImmersiveOpen(false)}
+                    />
+                  </View>
+                )}
+              </View>
+            ) : view === 'saved' ? (
+              <SavedWordsScreen onNavigate={navigate} />
+            ) : view === 'profile' ? (
+              <ProfileScreen
+                documents={documents}
+                onNavigate={navigate}
+                onRemoveBook={removeBook}
+              />
+            ) : view === 'settings' ? (
+              <SettingsScreen
+                onNavigate={navigate}
+                onShowGettingStarted={() => setOnboardingOpen(true)}
+              />
+            ) : (
+              <LibraryScreen
+                documents={documents}
+                loading={loading}
+                importing={importing}
+                onImport={importPdf}
+                onOpen={openDocument}
+                onNavigate={navigate}
+              />
+            )}
           </KokoroTtsProvider>
         </AppSettingsProvider>
       </SafeAreaProvider>
@@ -252,8 +358,9 @@ function App(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  root: {flex: 1},
-  readerStack: {flex: 1},
+  root: { flex: 1 },
+  bootScreen: { flex: 1, backgroundColor: '#FBFAF7' },
+  readerStack: { flex: 1 },
   immersiveLayer: {
     position: 'absolute',
     top: 0,

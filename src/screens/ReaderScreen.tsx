@@ -30,6 +30,7 @@ import ChevronLeft from 'lucide-react-native/icons/chevron-left';
 import ChevronRight from 'lucide-react-native/icons/chevron-right';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import DictionarySheet from '../components/DictionarySheet';
+import GoldGradientBackground from '../components/GoldGradientBackground';
 import FloatingNavigationContainer, {
   useFloatingNavigationLayout,
 } from '../components/FloatingNavigationContainer';
@@ -176,6 +177,7 @@ function ReaderScreen({
   const [zoomedPage, setZoomedPage] = useState<number | null>(null);
   const [modelInstalling, setModelInstalling] = useState(false);
   const pagerRef = useRef<FlatList<number>>(null);
+  const reportedPageRef = useRef(page);
   const scrollX = useRef(new Animated.Value(page * stageSize.width)).current;
   const previousPagerWidth = useRef(stageSize.width);
   const pages = useMemo(
@@ -368,8 +370,9 @@ function ReaderScreen({
       exitSelectionMode();
       return;
     }
+    onPageChange(page);
     onBack();
-  }, [exitSelectionMode, onBack, selectionMode, sheetVisible]);
+  }, [exitSelectionMode, onBack, onPageChange, page, selectionMode, sheetVisible]);
 
   useEffect(() => {
     const subscription = BackHandler.addEventListener(
@@ -487,14 +490,27 @@ function ReaderScreen({
     addCachedWord(word.text, result).catch(() => undefined);
   }, []);
 
+  const reportPage = useCallback(
+    (nextPage: number) => {
+      if (reportedPageRef.current === nextPage) {
+        return;
+      }
+      reportedPageRef.current = nextPage;
+      setPage(nextPage);
+      onPageChange(nextPage);
+    },
+    [onPageChange],
+  );
+
   const goToPage = useCallback(
     (nextPage: number) => {
       if (nextPage < 0 || nextPage >= document.pageCount) {
         return;
       }
+      reportPage(nextPage);
       pagerRef.current?.scrollToIndex({ index: nextPage, animated: true });
     },
-    [document.pageCount],
+    [document.pageCount, reportPage],
   );
 
   const landscapePageGesture = useMemo(
@@ -525,12 +541,9 @@ function ReaderScreen({
           Math.round(event.nativeEvent.contentOffset.x / pagerWidth),
         ),
       );
-      if (nextPage !== page) {
-        setPage(nextPage);
-        onPageChange(nextPage);
-      }
+      reportPage(nextPage);
     },
-    [document.pageCount, onPageChange, page, pagerWidth],
+    [document.pageCount, pagerWidth, reportPage],
   );
 
   const renderPage = useCallback(
@@ -668,6 +681,9 @@ function ReaderScreen({
                 styles.narrationButtonActive,
             ]}
           >
+            {(ttsStatus === 'playing' || ttsStatus === 'paused') && (
+              <GoldGradientBackground borderRadius={19} />
+            )}
             {extracting ||
             modelInstalling ||
             ttsStatus === 'initializing' ||
@@ -687,6 +703,7 @@ function ReaderScreen({
               onPress={onOpenImmersive}
               style={styles.immersiveButton}
             >
+              <GoldGradientBackground borderRadius={18} />
               <Text style={styles.immersiveButtonText}>♪</Text>
             </Pressable>
           )}
@@ -703,6 +720,7 @@ function ReaderScreen({
               selectionMode && styles.analyzeButtonActive,
             ]}
           >
+            {selectionMode && <GoldGradientBackground borderRadius={19} />}
             {extracting ? (
               <ActivityIndicator size="small" color="#FFFFFF" />
             ) : selectionMode ? (
@@ -785,6 +803,7 @@ function ReaderScreen({
             onPress={() => goToPage(page - 1)}
             style={[styles.pageButton, page === 0 && styles.disabledButton]}
           >
+            <GoldGradientBackground borderRadius={16} />
             <ChevronLeft color="#171614" size={24} strokeWidth={2.25} />
           </Pressable>
           <View style={styles.pageCounter}>
@@ -814,6 +833,7 @@ function ReaderScreen({
               page >= document.pageCount - 1 && styles.disabledButton,
             ]}
           >
+            <GoldGradientBackground borderRadius={16} />
             <ChevronRight color="#171614" size={24} strokeWidth={2.25} />
           </Pressable>
         </FloatingNavigationContainer>

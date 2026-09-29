@@ -8,6 +8,7 @@ import Library from 'lucide-react-native/icons/library';
 import {colors} from '../constants/theme';
 import {useAppSettings} from '../features/settings/AppSettingsProvider';
 import FloatingNavigationContainer from './FloatingNavigationContainer';
+import GoldGradientBackground from './GoldGradientBackground';
 
 export type MainTab = 'library' | 'saved' | 'settings' | 'profile';
 
@@ -47,6 +48,7 @@ function BottomNavigation({
             key={tab.id}
             onPress={() => onNavigate(tab.id)}
             style={[styles.tab, selected && styles.tabActive]}>
+            {selected && <GoldGradientBackground borderRadius={16} />}
             <View style={styles.glyph}>
               <Icon color={iconColor} size={20} strokeWidth={selected ? 2.5 : 2} />
             </View>
@@ -69,12 +71,14 @@ function BottomNavigation({
 const styles = StyleSheet.create({
   tab: {
     flex: 1,
+    height: 48,
+    maxWidth: 90,
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 16,
     marginHorizontal: 2,
   },
-  tabActive: {backgroundColor: colors.focus},
+  tabActive: {overflow: 'hidden'},
   glyph: {
     minWidth: 34,
     height: 28,

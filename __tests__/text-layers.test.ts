@@ -1,6 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import ReactNativeBlobUtil from 'react-native-blob-util';
-import {loadTextLayer, saveTextLayer} from '../src/storage/text-layers';
+import {
+  loadTextLayer,
+  removeTextLayer,
+  saveTextLayer,
+} from '../src/storage/text-layers';
 import type {TextLayer} from '../src/types/text-layer';
 
 jest.mock('@react-native-async-storage/async-storage', () => ({
@@ -15,6 +19,7 @@ jest.mock('react-native-blob-util', () => ({
     exists: jest.fn(),
     mkdir: jest.fn(),
     readFile: jest.fn(),
+    unlink: jest.fn(),
     writeFile: jest.fn(),
   },
 }));
@@ -34,6 +39,7 @@ beforeEach(() => {
   jest.clearAllMocks();
   fileSystem.exists.mockResolvedValue(false);
   fileSystem.mkdir.mockResolvedValue(undefined);
+  fileSystem.unlink.mockResolvedValue(undefined);
   fileSystem.writeFile.mockResolvedValue(undefined);
   storage.getItem.mockResolvedValue(null);
   storage.setItem.mockResolvedValue(undefined);
@@ -59,5 +65,23 @@ it('removes an unreadable oversized legacy row', async () => {
   storage.getItem.mockRejectedValueOnce(new Error('Row too big'));
 
   await expect(loadTextLayer('doc/1')).resolves.toBeNull();
+  expect(storage.removeItem).toHaveBeenCalledWith('@voxora/textlayer/doc/1');
+});
+
+it('removes a derived text layer and its index entries', async () => {
+  fileSystem.exists.mockResolvedValue(true);
+  storage.getItem.mockResolvedValue(
+    JSON.stringify({'doc/1': '2026-09-03T00:00:00.000Z'}),
+  );
+
+  await removeTextLayer('doc/1');
+
+  expect(fileSystem.unlink).toHaveBeenCalledWith(
+    '/documents/text-layers/doc_1.json',
+  );
+  expect(storage.setItem).toHaveBeenCalledWith(
+    '@wormhole/textlayer/index/v1',
+    '{}',
+  );
   expect(storage.removeItem).toHaveBeenCalledWith('@voxora/textlayer/doc/1');
 });

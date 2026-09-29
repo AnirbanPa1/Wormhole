@@ -1,7 +1,8 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { DictionaryResult } from '../services/dictionary.service';
 
-const WORD_CACHE_KEY = '@voxora/wordcache/v1';
+const WORD_CACHE_KEY = '@wormhole/wordcache/v1';
+const LEGACY_WORD_CACHE_KEY = '@voxora/wordcache/v1';
 
 export interface CachedWord {
   word: string;
@@ -12,13 +13,19 @@ export interface CachedWord {
 const MAX_CACHE = 200;
 
 export async function loadWordCache(): Promise<CachedWord[]> {
-  const stored = await AsyncStorage.getItem(WORD_CACHE_KEY);
+  const current = await AsyncStorage.getItem(WORD_CACHE_KEY);
+  const stored = current ?? (await AsyncStorage.getItem(LEGACY_WORD_CACHE_KEY));
   if (!stored) {
     return [];
   }
   try {
     const parsed: unknown = JSON.parse(stored);
-    return Array.isArray(parsed) ? parsed.filter(isCachedWord) : [];
+    const words = Array.isArray(parsed) ? parsed.filter(isCachedWord) : [];
+    if (current == null) {
+      await AsyncStorage.setItem(WORD_CACHE_KEY, JSON.stringify(words));
+      await AsyncStorage.removeItem(LEGACY_WORD_CACHE_KEY);
+    }
+    return words;
   } catch {
     return [];
   }
@@ -46,7 +53,10 @@ export async function addCachedWord(
 }
 
 export async function clearWordCache(): Promise<void> {
-  await AsyncStorage.removeItem(WORD_CACHE_KEY);
+  await Promise.all([
+    AsyncStorage.removeItem(WORD_CACHE_KEY),
+    AsyncStorage.removeItem(LEGACY_WORD_CACHE_KEY),
+  ]);
 }
 
 function isCachedWord(value: unknown): value is CachedWord {

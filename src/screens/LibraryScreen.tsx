@@ -1,6 +1,7 @@
-import React from 'react';
+import React, {useMemo} from 'react';
 import {
   ActivityIndicator,
+  Image,
   Pressable,
   ScrollView,
   Text,
@@ -8,8 +9,13 @@ import {
 } from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
 import BottomNavigation, {type MainTab} from '../components/BottomNavigation';
+import GoldGradientBackground from '../components/GoldGradientBackground';
 import {colors} from '../constants/theme';
 import {useAppSettings} from '../features/settings/AppSettingsProvider';
+import {
+  isDocumentComplete,
+  sortDocumentsByReadingActivity,
+} from '../features/library/library-progress';
 import type {LibraryDocument} from '../types/library';
 import styles from './LibraryScreen.styles';
 
@@ -76,16 +82,27 @@ function LibraryScreen({
   onNavigate,
 }: LibraryScreenProps): React.JSX.Element {
   const {darkMode} = useAppSettings();
+  const orderedBooks = useMemo(
+    () => sortDocumentsByReadingActivity(documents),
+    [documents],
+  );
   const currentBook =
-    documents.find(document => document.currentPage > 0) ?? documents[0];
-  const recentBooks = documents.filter(document => document.id !== currentBook?.id);
+    orderedBooks.find(document => !isDocumentComplete(document)) ??
+    orderedBooks[0];
+  const recentBooks = orderedBooks.filter(
+    document => document.id !== currentBook?.id,
+  );
   const librarySize = formatLibrarySize(documents);
 
   return (
     <SafeAreaView style={[styles.safeArea, darkMode && styles.safeAreaDark]}>
       <View style={styles.brandBar}>
         <View style={styles.brandMark}>
-          <Text style={styles.brandMarkText}>W</Text>
+          <Image
+            accessibilityIgnoresInvertColors
+            source={require('../../assets/branding/wormhole-icon.png')}
+            style={styles.brandMarkImage}
+          />
         </View>
         <View style={styles.brandCopy}>
           <Text style={[styles.brandName, darkMode && styles.textDark]}>Wormhole</Text>
@@ -97,6 +114,7 @@ function LibraryScreen({
           accessibilityLabel="Open profile"
           onPress={() => onNavigate('profile')}
           style={styles.avatarButton}>
+          <GoldGradientBackground borderRadius={14} />
           <Text style={styles.avatarText}>W</Text>
         </Pressable>
       </View>
@@ -127,6 +145,7 @@ function LibraryScreen({
                 pressed && styles.pressed,
                 importing && styles.disabled,
               ]}>
+              {darkMode && <GoldGradientBackground borderRadius={15} />}
               {importing ? (
                 <ActivityIndicator
                   color={darkMode ? colors.ink : colors.focus}
@@ -159,6 +178,7 @@ function LibraryScreen({
               <Pressable
                 onPress={onImport}
                 style={[styles.emptyButton, darkMode && styles.emptyButtonDark]}>
+                {darkMode && <GoldGradientBackground borderRadius={15} />}
                 <Text
                   style={[
                     styles.emptyButtonText,
@@ -201,7 +221,11 @@ function LibraryScreen({
                       style={[styles.progressFill, {width: `${progressFor(currentBook)}%`}]}
                     />
                   </View>
-                  <Text style={styles.continueText}>Continue reading</Text>
+                  <Text style={styles.continueText}>
+                    {isDocumentComplete(currentBook)
+                      ? 'Completed'
+                      : 'Continue reading'}
+                  </Text>
                   {currentBook.hasTextLayer && (
                     <View style={styles.dictBadge}>
                       <Text style={styles.dictBadgeText}>Dictionary ready</Text>
@@ -238,8 +262,12 @@ function LibraryScreen({
                           {document.title}
                         </Text>
                         <Text style={[styles.pageDetails, darkMode && styles.mutedDark]}>
-                          Page {Math.min(document.currentPage + 1, document.pageCount)} of{' '}
-                          {document.pageCount}
+                          {isDocumentComplete(document)
+                            ? 'Completed'
+                            : `Page ${Math.min(
+                                document.currentPage + 1,
+                                document.pageCount,
+                              )} of ${document.pageCount}`}
                         </Text>
                         <View
                           style={[

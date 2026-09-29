@@ -5,6 +5,8 @@ export type LibraryDocument = {
   pageCount: number;
   currentPage: number;
   importedAt: string;
+  lastReadAt?: string;
+  completedAt?: string;
   size: number | null;
   hasTextLayer?: boolean;
 };

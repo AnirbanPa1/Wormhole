@@ -2,8 +2,9 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import ReactNativeBlobUtil from 'react-native-blob-util';
 import type { TextLayer } from '../types/text-layer';
 
-const LAYER_PREFIX = '@voxora/textlayer/';
-const INDEX_KEY = '@voxora/textlayer/index/v1';
+const LEGACY_LAYER_PREFIX = '@voxora/textlayer/';
+const INDEX_KEY = '@wormhole/textlayer/index/v1';
+const LEGACY_INDEX_KEY = '@voxora/textlayer/index/v1';
 const LAYER_DIRECTORY = 'text-layers';
 
 interface LayerIndex {
@@ -25,10 +26,10 @@ export async function saveTextLayer(layer: TextLayer): Promise<void> {
     'utf8',
   );
 
-  const index: LayerIndex =
-    (await readIndex().catch(() => ({}))) ?? {};
+  const index: LayerIndex = (await readIndex().catch(() => ({}))) ?? {};
   index[layer.documentId] = new Date().toISOString();
   await AsyncStorage.setItem(INDEX_KEY, JSON.stringify(index));
+  await AsyncStorage.removeItem(LEGACY_INDEX_KEY);
 
   // Remove data written by the old single-row implementation after the file
   // has been persisted successfully.
@@ -76,14 +77,36 @@ export async function hasTextLayer(documentId: string): Promise<boolean> {
   return (await loadTextLayer(documentId)) !== null;
 }
 
+export async function removeTextLayer(documentId: string): Promise<void> {
+  const path = textLayerPath(documentId);
+  if (await ReactNativeBlobUtil.fs.exists(path)) {
+    await ReactNativeBlobUtil.fs.unlink(path);
+  }
+
+  const index: LayerIndex = await readIndex().catch(() => ({}));
+  if (documentId in index) {
+    delete index[documentId];
+    await AsyncStorage.setItem(INDEX_KEY, JSON.stringify(index));
+  }
+  await AsyncStorage.removeItem(LEGACY_INDEX_KEY);
+  await AsyncStorage.removeItem(legacyPayloadKey(documentId));
+}
+
 async function readIndex(): Promise<LayerIndex> {
-  const stored = await AsyncStorage.getItem(INDEX_KEY);
+  const current = await AsyncStorage.getItem(INDEX_KEY);
+  const stored = current ?? (await AsyncStorage.getItem(LEGACY_INDEX_KEY));
   if (!stored) {
     return {};
   }
   try {
     const parsed: unknown = JSON.parse(stored);
-    return parsed && typeof parsed === 'object' ? (parsed as LayerIndex) : {};
+    const index =
+      parsed && typeof parsed === 'object' ? (parsed as LayerIndex) : {};
+    if (current == null) {
+      await AsyncStorage.setItem(INDEX_KEY, JSON.stringify(index));
+      await AsyncStorage.removeItem(LEGACY_INDEX_KEY);
+    }
+    return index;
   } catch {
     return {};
   }
@@ -99,7 +122,7 @@ function textLayerPath(documentId: string): string {
 }
 
 function legacyPayloadKey(documentId: string): string {
-  return `${LAYER_PREFIX}${documentId}`;
+  return `${LEGACY_LAYER_PREFIX}${documentId}`;
 }
 
 function isTextLayer(value: unknown): value is TextLayer {

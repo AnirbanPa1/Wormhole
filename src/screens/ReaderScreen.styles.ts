@@ -28,8 +28,8 @@ const styles = StyleSheet.create({
     flex: 1,
     textAlign: 'left',
     color: colors.readerInk,
-    fontSize: 19,
-    fontWeight: '700',
+    fontFamily: 'serif',
+    fontSize: 25,
     paddingHorizontal: 8,
   },
   analyzeButton: {
@@ -38,9 +38,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     borderRadius: 19,
+    overflow: 'hidden',
     backgroundColor: colors.analyzeBg,
   },
-  analyzeButtonActive: { backgroundColor: colors.focus },
+  analyzeButtonActive: { backgroundColor: 'transparent' },
   captureGlyph: { width: 20, height: 20 },
   captureCorner: {
     position: 'absolute',
@@ -93,8 +94,8 @@ const styles = StyleSheet.create({
     flex: 1,
     height: 54,
     borderRadius: 16,
+    overflow: 'hidden',
     marginHorizontal: 2,
-    backgroundColor: colors.focus,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -132,14 +133,13 @@ const styles = StyleSheet.create({
     height: 38,
     marginRight: 6,
     borderRadius: 19,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.readerButtonBg,
   },
 
-  narrationButtonActive: {
-    backgroundColor: colors.focus,
-  },
+  narrationButtonActive: {backgroundColor: 'transparent'},
 
   narrationButtonText: {
     color: colors.ink,
@@ -152,9 +152,9 @@ const styles = StyleSheet.create({
     height: 36,
     marginRight: 6,
     borderRadius: 18,
+    overflow: 'hidden',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: colors.focus,
   },
 
   immersiveButtonText: {

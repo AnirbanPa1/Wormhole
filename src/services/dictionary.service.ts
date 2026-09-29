@@ -90,31 +90,14 @@ export function initDictionary(): Promise<boolean> {
       return true;
     } catch (error) {
       loadPromise = null;
-      console.warn('Dictionary failed to load', error);
+      if (__DEV__) {
+        console.warn('Dictionary failed to load', error);
+      }
       return false;
     }
   })();
 
   return loadPromise;
-}
-
-export function isLoaded(): boolean {
-  return dictionary !== null;
-}
-
-export function getMeta(): RawDictionary['meta'] | null {
-  return dictionary?.meta ?? null;
-}
-
-export function wordCount(): number {
-  return dictionary?.meta?.words ?? 0;
-}
-
-export function lookupRaw(word: string): DictionaryEntry[] | undefined {
-  if (!dictionary) {
-    return undefined;
-  }
-  return dictionary.words[word.toLowerCase().trim()];
 }
 
 /**
