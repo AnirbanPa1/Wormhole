@@ -1,5 +1,11 @@
-import React from 'react';
-import {StyleSheet, View, type StyleProp, type ViewStyle} from 'react-native';
+import React, {useCallback, useState} from 'react';
+import {
+  StyleSheet,
+  View,
+  type LayoutChangeEvent,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import Svg, {
   Defs,
   LinearGradient,
@@ -17,21 +23,47 @@ function GoldGradientBackground({
   borderRadius = 0,
   style,
 }: GoldGradientBackgroundProps): React.JSX.Element {
+  const [size, setSize] = useState({width: 0, height: 0});
+
+  const handleLayout = useCallback((event: LayoutChangeEvent) => {
+    const {width, height} = event.nativeEvent.layout;
+
+    setSize(current =>
+      Math.abs(current.width - width) < 0.5 &&
+      Math.abs(current.height - height) < 0.5
+        ? current
+        : {width, height},
+    );
+  }, []);
+
   return (
     <View
+      onLayout={handleLayout}
       pointerEvents="none"
       style={[styles.container, {borderRadius}, style]}>
-      <Svg height="100%" width="100%">
-        <Defs>
-          <LinearGradient id="wormholeGold" x1="0" y1="0" x2="1" y2="1">
-            <Stop offset="0" stopColor={goldGradient.start} />
-            <Stop offset="0.38" stopColor={goldGradient.middle} />
-            <Stop offset="0.72" stopColor={goldGradient.deep} />
-            <Stop offset="1" stopColor={goldGradient.end} />
-          </LinearGradient>
-        </Defs>
-        <Rect height="100%" width="100%" fill="url(#wormholeGold)" />
-      </Svg>
+      {size.width > 0 && size.height > 0 && (
+        <Svg
+          height={size.height}
+          key={`${size.width}:${size.height}`}
+          style={StyleSheet.absoluteFill}
+          width={size.width}>
+          <Defs>
+            <LinearGradient id="wormholeGold" x1="0" y1="0" x2="1" y2="1">
+              <Stop offset="0" stopColor={goldGradient.start} />
+              <Stop offset="0.38" stopColor={goldGradient.middle} />
+              <Stop offset="0.72" stopColor={goldGradient.deep} />
+              <Stop offset="1" stopColor={goldGradient.end} />
+            </LinearGradient>
+          </Defs>
+          <Rect
+            fill="url(#wormholeGold)"
+            height={size.height}
+            rx={borderRadius}
+            ry={borderRadius}
+            width={size.width}
+          />
+        </Svg>
+      )}
     </View>
   );
 }
