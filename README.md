@@ -2,6 +2,20 @@
 
 Wormhole is a local-first Android PDF reader with offline Kokoro narration, reading progress, saved words, and dictionary lookup.
 
+## Install and updates
+
+[![Get it on Obtainium](https://raw.githubusercontent.com/ImranR98/Obtainium/main/assets/graphics/badge_obtainium.png)](https://apps.obtainium.imranr.dev/redirect?r=obtainium://add/https://github.com/AnirbanPa1/Wormhole)
+
+Tap the badge on an Android device to add Wormhole to Obtainium. You can
+also add it manually by pasting this repository URL into Obtainium:
+
+```text
+https://github.com/AnirbanPa1/Wormhole
+```
+
+Obtainium tracks Wormhole's stable GitHub releases and installs the attached
+`arm64-v8a` APK. The Android package ID is `com.wormhole`.
+
 ## Requirements
 
 - Node.js 22.11 or newer
@@ -37,6 +51,13 @@ cd android
 ```
 
 The APK is written to `android/app/build/outputs/apk/release/`.
+
+For Obtainium-compatible updates, each public release must:
+
+- use a semantic tag such as `v0.3.0`;
+- attach the signed `arm64-v8a` APK directly to the GitHub release;
+- increase Android `versionCode` for every update; and
+- use the same release signing key as previous versions.
 
 The app is intentionally local-first: imported books, extracted text,
 dictionary data, and generated narration remain on the device.
